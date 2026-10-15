@@ -21,7 +21,7 @@ body.editing #main-sortable > .panel.sortable-ghost { opacity: .35; }
 .ed-pbar button:focus-visible, .ed-grip:focus-visible, .ed-tilectl button:focus-visible, .ed-add:focus-visible { outline: 3px solid #fbbf24; outline-offset: 1px; }
 
 /* ── Small controls on each number / card ── */
-body.editing .metric-box, body.editing .custom-widget, body.editing .hl-card { position: relative; }
+body.editing .chart-wrap, body.editing .metric-box, body.editing .custom-widget, body.editing .hl-card { position: relative; }
 .ed-tilectl { position: absolute; top: -9px; right: -6px; z-index: 4; display: inline-flex; gap: 2px; }
 .ed-tilectl button { width: 24px; height: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink2); font-size: .8rem; line-height: 1; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 .ed-tilectl button:hover { background: var(--green-xll); color: var(--green-d); }
@@ -95,3 +95,5 @@ body.editing .metric-box, body.editing .custom-widget, body.editing .hl-card { p
   #ed-tips { top: 8px; bottom: auto; left: 8px; right: 8px; width: auto; max-height: 60vh; overflow-y: auto; z-index: 10004; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+.chart-wrap > .ed-tilectl { top: 4px; right: 4px; }

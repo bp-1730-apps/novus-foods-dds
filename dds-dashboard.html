@@ -1999,7 +1999,7 @@ async function lsSave(){
 // told to show the latest value, or the average / total of the last 7 days.
 let METRIC_SOURCES = {};   // item_key -> {sheet, field, row_key, agg}
 const SRC_AGG_LABELS = { latest:'Latest value', avg7:'Average of last 7 days', sum7:'Total of last 7 days' };
-const TILE_CHARTS = { 'wh-fill':['wh-fill-chart',((window.PLANT_CONFIG.cities||[])[0]||{}).fillLabel||'Fill Rate %'], 'wh-ce-fill':['wh-ce-chart',((window.PLANT_CONFIG.cities||[])[1]||{}).fillLabel||'Second Site Fill Rate %'] };
+const TILE_CHARTS = { 'trainings':['hr-chart','Complete'], 'wh-fill':['wh-fill-chart',((window.PLANT_CONFIG.cities||[])[0]||{}).fillLabel||'Fill Rate %'], 'wh-ce-fill':['wh-ce-chart',((window.PLANT_CONFIG.cities||[])[1]||{}).fillLabel||'Second Site Fill Rate %'] };
 async function loadMetricSources(){
   METRIC_SOURCES = {};
   if(!window.NovusDB || !NovusDB.metricSources || !window.ACTIVE_PLANT) return;
@@ -2061,7 +2061,7 @@ function applyHidden(){
   const editing = !!(window.EDIT && EDIT.on), cls = editing ? 'ed-hidden' : 'nv-hidden';
   const mark = (el, off)=>{ el.classList.toggle('nv-hidden', off && !editing); el.classList.toggle('ed-hidden', off && editing); };
   document.querySelectorAll('#main-sortable > .panel').forEach(el=>mark(el, HIDDEN_ITEMS.has('panel:'+el.id)));
-  layItems().forEach(it=>it.boxes.forEach(b=>mark(b.el, HIDDEN_ITEMS.has(b.key))));
+  layItems().forEach(it=>it.boxes.forEach(b=>{ mark(b.el, HIDDEN_ITEMS.has(b.key)); const t=TILE_CHARTS[b.key.replace(/^metric:/,'')]; const cv=t&&document.getElementById(t[0]); if(cv&&cv.closest('.chart-wrap')) mark(cv.closest('.chart-wrap'), HIDDEN_ITEMS.has(b.key)); }));
 }
 async function loadHiddenItems(){
   HIDDEN_ITEMS = new Set();

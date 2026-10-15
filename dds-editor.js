@@ -345,6 +345,15 @@
       b.el.appendChild(ctl);
       if (src) b.el.classList.add('ed-fed'); else b.el.classList.remove('ed-fed');
     }));
+    /* The built-in donuts mirror a number: give each one a gear that opens that number's settings. */
+    const DONUTS = { 'hr-chart': 'metric:trainings', 'wh-fill-chart': 'metric:wh-fill', 'wh-ce-chart': 'metric:wh-ce-fill' };
+    Object.keys(DONUTS).forEach(cid => {
+      const cv = document.getElementById(cid), wrap = cv && cv.closest('.chart-wrap'); if (!wrap) return;
+      const key = DONUTS[cid], box = LS_BUILTIN.reduce((a, it) => a || it.boxes.find(b => b.key === key), null);
+      const label = box ? box.label : 'This chart', src = d.src[key];
+      wrap.appendChild(mk('span', 'ed-x ed-tilectl', `<button type="button" data-tile="${esc(key)}" data-label="${esc(label)}" title="Change what this chart shows (${esc(label)})" aria-label="Change what this chart shows">⚙</button>`));
+      wrap.classList.toggle('ed-fed', !!src);
+    });
     $$('.custom-widget').forEach(w => {
       const id = w.id.replace(/^cw-/, '');
       w.appendChild(mk('span', 'ed-x ed-tilectl', `<button type="button" data-cwedit="${esc(id)}" title="Edit">✎</button><button type="button" data-cwrm="${esc(id)}" title="Remove">×</button>`));
