@@ -1,0 +1,11 @@
+# Holds your real L2L API key — never commit or upload this to the
+# (public) GitHub repo.
+config.py
+
+__pycache__/
+*.pyc
+
+# Local tooling
+node_modules/
+.DS_Store
+*.log

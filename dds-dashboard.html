@@ -1,0 +1,2194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script src="plant-config.js"></script>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>DDS Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500&family=Permanent+Marker&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="novus-styles.css">
+  <script src="sharepoint-config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script src="novus-core.js"></script>
+  <link rel="stylesheet" href="dds-editor.css">
+  <script>
+    window.__libs={chartjs:false};
+    function _checkLibsReady(){if(window.__libs.chartjs&&window.__libsCallback)window.__libsCallback();}
+  </script>
+  <script>
+    // ── Multi-plant config ──────────────────────────────────────────────
+    // plant-config.js describes the one plant this site shows. Each plant
+    // supplies its own Power-Automate/L2L data URLs and its own flat line
+    // list -- the 8 data sheets/fields and the rest of the layout stay
+    // identical across every plant. Kicked off immediately (in parallel
+    // with chart.js/xlsx below) so it's ready by the time __libsCallback
+    // runs.
+    // Plant list comes from plant-config.js (one plant per deployment).
+    async function resolveActivePlant(){
+      const config = await window.PLANTS_CONFIG_PROMISE;
+      const plants = config.plants || [];
+      const urlId = new URLSearchParams(location.search).get('plant');
+      let storedId = null;
+      try { storedId = localStorage.getItem('novus_active_plant'); } catch(_) {}
+      const wantId = urlId || storedId;
+      const plant = plants.find(p => p.id === wantId) || plants[0];
+      window.PLANTS_CONFIG = config;
+      window.ACTIVE_PLANT = plant;
+      try { localStorage.setItem('novus_active_plant', plant.id); } catch(_) {}
+      return plant;
+    }
+
+    // Reflects the active plant into branding (title, plant-status-bar
+    // label). The plant picker itself lives on the hub (hub.html) -- this
+    // page only ever displays whichever plant was chosen there (via
+    // ?plant= on the link, or the novus_active_plant localStorage key it
+    // sets); there's no picker here to keep in sync with it.
+    function applyPlantBranding(plant){
+      document.title = 'DDS Dashboard – ' + plant.name;
+      const label = document.querySelector('.psb-plant-label');
+      if(label) label.textContent = plant.shortLabel || plant.name;
+    }
+  </script>
+  <script async src="https://cdn.jsdelivr.net/npm/chart.js" onload="window.__libs.chartjs=true;_checkLibsReady()"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" onload="window.__libs.xlsx=true;_checkLibsReady()"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <style>
+    /* ── Level 1 DDS Highlights ── */
+    .highlights-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+    }
+    .hl-card {
+      background: #0d1f18;
+      border: 1px solid #1e3d2c;
+      border-radius: var(--radius);
+      padding: 22px 18px 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 10px;
+      position: relative;
+      overflow: hidden;
+      transition: transform .25s var(--spring), box-shadow .25s, border-color .2s;
+      box-shadow: 0 4px 16px rgba(0,0,0,.2);
+      cursor: pointer;
+    }
+    .hl-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 32px rgba(0,0,0,.3);
+      border-color: #2d5a42;
+    }
+    .hl-card.revealed { cursor: default; }
+    
+    /* Dept glow in corner */
+    .hl-card::before {
+      content: '';
+      position: absolute;
+      top: -40px; right: -40px;
+      width: 130px; height: 130px;
+      border-radius: 50%;
+      pointer-events: none;
+      opacity: .15;
+    }
+    .hl-card[data-dept="Quality"]::before    { background: var(--dept-quality); }
+    .hl-card[data-dept="Production"]::before { background: var(--dept-production); }
+    .hl-card[data-dept="Sanitation"]::before { background: var(--dept-sanitation); }
+    .hl-card[data-dept="Warehouse"]::before  { background: var(--dept-warehouse); }
+    
+    /* Spotlight burst ring */
+    .hl-spotlight-ring {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 10px; height: 10px;
+      margin: -5px 0 0 -5px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(16,185,129,.6) 0%, rgba(16,185,129,.15) 40%, transparent 70%);
+      pointer-events: none;
+      opacity: 0;
+      transform: scale(1);
+    }
+    .hl-card.revealed .hl-spotlight-ring {
+      animation: spotlightBurst .65s cubic-bezier(.2,0,.4,1) forwards;
+    }
+    @keyframes spotlightBurst {
+      0%   { transform: scale(1);  opacity: 1; }
+      100% { transform: scale(45); opacity: 0; }
+    }
+    
+    .hl-trophy {
+      font-size: 1.8rem;
+      line-height: 1;
+      filter: drop-shadow(0 2px 6px rgba(0,0,0,.3));
+      position: relative; z-index: 1;
+    }
+    .hl-dept-label {
+      font-size: .6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      color: rgba(255,255,255,.4);
+      position: relative; z-index: 1;
+    }
+    
+    /* Name — blurred until revealed */
+    .hl-name {
+      font-family: 'Permanent Marker', cursive;
+      font-size: 1.2rem;
+      color: var(--green-l);
+      border: none;
+      border-bottom: 2px dashed rgba(16,185,129,.3);
+      background: transparent;
+      outline: none;
+      width: 100%;
+      text-align: center;
+      padding: 4px 2px;
+      letter-spacing: .02em;
+      filter: blur(9px);
+      pointer-events: none;
+      transition: filter .65s cubic-bezier(.4,0,.2,1), border-color .15s;
+      position: relative; z-index: 1;
+    }
+    .hl-card.revealed .hl-name {
+      filter: blur(0);
+      pointer-events: auto;
+      animation: nameGlow .7s cubic-bezier(.4,0,.2,1);
+    }
+    @keyframes nameGlow {
+      0%   { text-shadow: none;                                                          filter: blur(9px); }
+      50%  { text-shadow: 0 0 24px rgba(16,185,129,.9), 0 0 48px rgba(16,185,129,.5);   filter: blur(0); }
+      100% { text-shadow: 0 0 6px  rgba(16,185,129,.15);                                filter: blur(0); }
+    }
+    .hl-name:focus { border-bottom-color: var(--green-l); }
+    .hl-name::placeholder {
+      color: rgba(255,255,255,.18);
+      font-family: var(--font);
+      font-size: .82rem;
+      font-style: italic;
+    }
+    .hl-name[readonly] { cursor: default; border-bottom-color: transparent; }
+    
+    /* Reveal hint */
+    .hl-reveal-hint {
+      font-size: .65rem;
+      color: rgba(255,255,255,.3);
+      font-family: var(--mono);
+      letter-spacing: .05em;
+      pointer-events: none;
+      position: relative; z-index: 1;
+      transition: opacity .3s;
+    }
+    .hl-card.revealed .hl-reveal-hint { display: none; }
+    
+    .hl-meta {
+      font-size: .58rem;
+      color: rgba(255,255,255,.2);
+      font-family: var(--mono);
+      position: relative; z-index: 1;
+    }
+    .hl-saving { color: var(--amber-l); }
+    .hl-saved  { color: var(--green-l); }
+    /* ── Department panel cards ── */
+    .panel {
+      background: var(--surface);
+      border: 2px solid rgba(0,0,0,.15);
+      border-radius: var(--radius);
+      box-shadow: 0 2px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.06);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: box-shadow .2s, border-color .2s;
+      position: relative;
+    }
+    .panel:hover {
+      border-color: rgba(0,0,0,.25);
+      box-shadow: 0 6px 20px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.07);
+    }
+
+    /* ── Dashboard-specific layout ── */
+    .dash-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:12px; margin:16px 0; }
+
+    /* Toggle switch (in settings dropdown) */
+    .toggle { width:30px; height:17px; background:var(--border2); border-radius:9px; position:relative; cursor:pointer; border:none; padding:0; transition:background .2s; flex-shrink:0; }
+    .toggle.on { background:var(--green); }
+    .toggle::after { content:''; position:absolute; top:2px; left:2px; width:13px; height:13px; background:white; border-radius:50%; transition:transform .2s; box-shadow:0 1px 3px rgba(0,0,0,.2); }
+    .toggle.on::after { transform:translateX(13px); }
+    .interval-sel { font-family:var(--font); font-size:.72rem; border:1px solid var(--border); border-radius:var(--radius-xs); padding:2px 6px; background:var(--surface2); color:var(--ink2); }
+
+    /* Production */
+    .prod-split { display:grid; grid-template-columns:1fr 1.8fr; gap:20px; }
+    .prod-split.prod-one { grid-template-columns:1fr; }
+    .prod-totals .metric-box { flex:1 1 140px; min-width:0; }
+    .l2l-badge { font-size:.55rem; font-weight:800; letter-spacing:.05em; padding:1px 4px; border-radius:3px; background:rgba(59,130,246,.12); color:#1d4ed8; vertical-align:middle; }
+    @media (max-width:900px){ .prod-split { grid-template-columns:1fr; } }
+    .timeframe-block { padding:9px 14px; border-radius:var(--radius-sm); display:flex; flex-direction:column; align-items:center; margin-bottom:12px; }
+    .tf-today { background:linear-gradient(135deg,var(--green-d),var(--green)); color:white; }
+    .tf-yesterday { background:linear-gradient(135deg,var(--ink2),var(--ink)); color:white; }
+    .timeframe-title { font-size:.8rem; font-weight:800; text-transform:uppercase; letter-spacing:.07em; }
+    .timeframe-date  { font-family:var(--mono); font-size:.67rem; opacity:.75; margin-top:2px; }
+    .split-row { display:flex; gap:12px; }
+    .split-col { flex:1; display:flex; flex-direction:column; gap:8px; }
+    .col-label { background:var(--surface2); padding:4px; border-radius:var(--radius-xs); border:1px solid var(--border); text-align:center; font-weight:700; font-size:.64rem; color:var(--ink3); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+    .readiness-stack { background:var(--green-xll); border:1px solid var(--green-ll); border-radius:var(--radius-sm); padding:8px; display:flex; flex-direction:column; gap:6px; }
+    .readiness-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:7px; text-align:center; }
+    .readiness-line { font-weight:700; font-size:.73rem; color:var(--green-d); margin-bottom:4px; border-bottom:1px solid var(--border); padding-bottom:3px; }
+    .status-pill { font-size:.62rem; font-weight:700; padding:3px 6px; border-radius:3px; display:flex; justify-content:space-between; align-items:center; margin-top:3px; }
+    .pill-yes { background:rgba(22,163,74,.1); color:#15803d; }
+    .pill-no  { background:rgba(220,38,38,.08); color:var(--red-l); }
+    .pill-label { opacity:.55; font-size:.56rem; }
+
+    /* Resizer handle */
+    .resizer { position:absolute; right:0; bottom:0; width:18px; height:18px; cursor:nwse-resize; clip-path:polygon(100% 0,100% 100%,0 100%); background:linear-gradient(135deg,var(--border2),var(--green)); opacity:0; transition:opacity .2s; border-radius:0 0 var(--radius) 0; }
+    .resizer { display:none; }
+    body.editing .resizer { display:block; opacity:.7; touch-action:none; }
+  
+    /* Dropdown z-index fix — backdrop-filter on .cmd-header creates a
+       stacking context that caps child z-indexes without this. */
+    .cmd-more-wrap { isolation: isolate; }
+    .more-dropdown  { z-index: 9999; }
+
+    /* ── Custom Widgets (admin-managed metric cards / charts) ── */
+    /* Auto-fit grid: widgets narrower than ~190px sit side by side (as
+       many as fit the panel's width); a widget marked .cw-full-width
+       always spans the whole row regardless of how much room is left. */
+    /* Custom widgets reuse the built-in look (.metric-row/.metric-box, .section-label + .chart-wrap, .drivers-box); the zone adds no box of its own. */
+    .custom-widget-zone { display:contents; }
+    .custom-widget { position:relative; min-width:0; }
+    .custom-widget-remove, .cw-note-edit { position:absolute; top:3px; right:3px; z-index:2; width:18px; height:18px; border:none; border-radius:4px; background:rgba(220,38,38,.1); color:var(--red-l); cursor:pointer; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .15s; padding:0; }
+    .cw-note-edit { right:24px; background:rgba(5,150,105,.12); color:var(--green-d); font-size:.7rem; line-height:1; }
+    .custom-widget:hover .custom-widget-remove, .custom-widget:hover .cw-note-edit { opacity:1; }
+    .custom-widget-remove:hover { background:rgba(220,38,38,.2); }
+    #ls-toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px); opacity:0; pointer-events:none; z-index:10003; background:#065f46; color:#fff; padding:10px 16px; border-radius:10px; font-size:.78rem; font-weight:700; transition:all .25s; }
+    #ls-toast.show { opacity:1; transform:translateX(-50%); }
+    .nv-hidden { display:none !important; }
+    .cw-note-box textarea { width:100%; min-height:90px; font-family:var(--mono); font-size:.82rem; line-height:1.6; padding:6px 8px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--surface); color:var(--ink); resize:vertical; }
+    .cw-note-actions { display:flex; gap:6px; margin-top:6px; }
+    .cw-note-actions button { font:inherit; font-size:.7rem; font-weight:700; padding:4px 10px; border-radius:6px; border:1px solid var(--border); cursor:pointer; background:var(--surface2); color:var(--ink); }
+    .cw-note-actions button.primary { background:var(--green); border-color:var(--green); color:#fff; }
+    .cw-trend-row { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:8px; margin-top:6px; text-align:left; }
+    .cw-trend-delta { font-size:.7rem; font-weight:700; }
+    .cw-trend-delta.good { color:var(--green); } .cw-trend-delta.bad { color:var(--red-l); } .cw-trend-delta.flat { color:var(--ink3); }
+    .cw-trend-sub { font-size:.62rem; color:var(--ink4); margin-top:2px; }
+    .cw-checkbox-row { display:flex; align-items:center; gap:7px; margin-bottom:12px; font-size:.72rem; color:var(--ink3); cursor:pointer; }
+    .cw-checkbox-row input { flex-shrink:0; }
+    .cw-divider { border-top:1px solid var(--border); margin:16px 0 12px; }
+    .cw-list-title { font-size:.72rem; font-weight:800; color:var(--ink3); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+    .cw-list-item { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 9px; border:1px solid var(--border); border-radius:var(--radius-xs); margin-bottom:6px; background:var(--surface2); }
+    .cw-list-item-label { font-size:.75rem; color:var(--ink); }
+    .cw-list-item-meta { font-size:.62rem; color:var(--ink4); }
+    .cw-list-remove { border:none; background:none; color:var(--red-l); cursor:pointer; font-size:.7rem; font-weight:700; padding:2px 6px; }
+    .cw-list-remove:hover { text-decoration:underline; }
+    .cw-empty { font-size:.72rem; color:var(--ink4); padding:6px 0; }
+
+  </style>
+</head>
+<body>
+<!-- ══ COMMAND CENTER HEADER ══════════════════════════════════════════════ -->
+<header class="cmd-header">
+
+  <!-- Left: Logo + divider + nav -->
+  <div class="cmd-left">
+    <a href="dds-announcements.html">
+      <img data-brand-logo alt="" class="cmd-logo">
+    </a>
+    <div class="cmd-divider"></div>
+    <nav class="cmd-nav">
+      <a class="cmd-tab" href="dds-announcements.html">Announcements</a>
+      <a class="cmd-tab active" href="dds-dashboard.html">Dashboard</a>
+      <a class="cmd-tab" href="weekly-kpis.html">Weekly KPIs</a>
+      <a class="cmd-tab" href="play-call.html">Play Call</a>
+      <a class="cmd-tab" href="data-entry.html">Data Entry</a>
+    </nav>
+  </div>
+
+  <!-- Right: freshness badge + refresh + settings + logout -->
+  <div class="cmd-right">
+
+    <!-- Data freshness badge -->
+    <div class="freshness-badge" id="freshness-badge" title="Data freshness">
+      <div class="freshness-dot" id="freshness-dot"></div>
+      <span id="freshness-text">No data</span>
+    </div>
+
+    <!-- Refresh -->
+    <button class="btn-cmd btn-cmd-primary" id="btn-sp" onclick="fetchFromSharePoint()" title="Sync latest data from SharePoint">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 0-.08-5.96"/></svg>
+      Sync Data
+    </button>
+
+    <!-- ··· More menu (all secondary actions) -->
+    <div class="cmd-more-wrap" id="more-wrap">
+      <button class="btn-cmd-icon" id="btn-more" onclick="toggleMore(event)" title="More options">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+      </button>
+
+      <div class="more-dropdown hidden" id="more-dropdown">
+
+        <!-- Quick actions -->
+        <div class="sd-group-label">Quick Access</div>
+        <button class="sd-item" onclick="NovusCore.showNeedsAction();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Needs Action
+        </button>
+        <button class="sd-item" onclick="NovusCore.showRules();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Rules of Engagement
+        </button>
+        <button class="sd-item" onclick="NovusCore.showCoreValues();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Core Values
+        </button>
+        <button class="sd-item" onclick="NovusCore.showHelp();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Help & FAQ
+        </button>
+
+        <div class="sd-divider"></div>
+
+        <!-- Data settings -->
+        <div class="sd-group-label">Data</div>
+        <label class="sd-item" style="cursor:pointer;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload XLSX (fallback)
+          <input type="file" id="file-upload" accept=".xlsx,.xls" style="display:none" onchange="handleUpload(event);closeMore()">
+        </label>
+        <button class="sd-item sd-item-danger" onclick="clearManuals();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.65"/></svg>
+          Clear Manual Overrides
+        </button>
+        <!-- Admin-only -- visibility toggled in applyRoleAccess() -->
+        <button class="sd-item" id="btn-layout-studio" style="display:none;" onclick="EDIT.toggle()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+          Edit Dashboard (layout, widgets &amp; data)
+        </button>
+
+        <div class="sd-divider"></div>
+
+        <!-- Auto-refresh -->
+        <div class="sd-group-label">Auto-refresh</div>
+        <div class="sd-item" style="cursor:default;gap:10px;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.82rem;">
+            <button class="toggle" id="auto-toggle" onclick="toggleAutoRefresh()" style="flex-shrink:0;"></button>
+            Enable
+          </label>
+          <select class="interval-sel" id="interval-sel" onchange="updateInterval()" style="width:auto;padding:3px 6px;font-size:.75rem;flex:1;">
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+            <option value="15" selected>15 min</option>
+            <option value="30">30 min</option>
+          </select>
+        </div>
+
+        <div class="sd-divider"></div>
+
+        <!-- Session -->
+        <button class="sd-item" onclick="NovusCore.showMaintenance();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          Maintenance
+        </button>
+        <div class="sd-group-label">Session</div>
+        <button class="sd-item sd-item-danger" onclick="NovusCore.logout()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Logout
+        </button>
+
+      </div>
+    </div>
+
+  </div>
+</header>
+
+<!-- ══ PLANT STATUS BAR ═══════════════════════════════════════════════════ -->
+<div class="plant-status-bar" id="plant-status-bar" data-status="loading">
+  <div class="psb-inner">
+    <div class="psb-left">
+      <div class="psb-dot" id="psb-dot"></div>
+      <span class="psb-plant-label">—</span>
+      <span class="psb-status-sep">·</span>
+      <span class="psb-status-text" id="psb-status-text">Loading…</span>
+    </div>
+    <div class="psb-right">
+      <div class="psb-metric">
+        <span class="psb-metric-label">Avg OEE</span>
+        <span class="psb-metric-val" id="psb-oee">—</span>
+      </div>
+      <span class="psb-metric-sep">·</span>
+      <div class="psb-metric">
+        <span class="psb-metric-label">Code Red</span>
+        <span class="psb-metric-val" id="psb-codered">—</span>
+      </div>
+      <span class="psb-metric-sep">·</span>
+      <div class="psb-metric">
+        <span class="psb-metric-label">Lines</span>
+        <span class="psb-metric-val" id="psb-lines">—</span>
+      </div>
+      <span class="psb-metric-sep">·</span>
+      <span style="font-size:.7rem;font-family:var(--mono);color:var(--ink4);" id="psb-clock">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- SharePoint status bar -->
+<div class="sp-bar" id="sp-bar">
+  <div class="sp-bar-left"><div class="sp-spinner" id="sp-spinner"></div><span id="sp-msg">Ready</span></div>
+  <span style="font-size:.7rem;opacity:.85;font-family:var(--mono);" id="sp-time"></span>
+</div>
+
+<div class="page">
+  <div class="dash-grid" id="main-sortable">
+
+    <!-- SAFETY -->
+    <div class="panel" style="grid-column:span 4;position:relative;" id="panel-safety">
+      <div class="panel-header ph-safety"><span class="panel-title">🦺 Safety</span></div>
+      <div class="panel-date" id="date-safety">—</div>
+      <div class="panel-body">
+        <div class="metric-row">
+          <div class="metric-box"><div class="metric-label">Days Without Incident</div><div class="metric-value" id="days-incident" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">Near Misses</div><div class="metric-value" id="near-misses" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">Safety Audits</div><div class="metric-value" id="safety-audits" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+        </div>
+      </div>
+      <div class="resizer"></div>
+    </div>
+
+    <!-- QUALITY -->
+    <div class="panel" style="grid-column:span 8;position:relative;" id="panel-quality">
+      <div class="panel-header ph-quality"><span class="panel-title">✅ Quality</span></div>
+      <div class="panel-date" id="date-quality">—</div>
+      <div class="panel-body">
+        <div class="metric-row">
+          <div class="metric-box"><div class="metric-label">Holds</div><div class="metric-value" id="holds" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">Holds / COA</div><div class="metric-value" id="holds-coa" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">PEM %</div><div class="metric-value" id="pem" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">Complaints</div><div class="metric-value" id="complaints" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+        </div>
+      </div>
+      <div class="resizer"></div>
+    </div>
+
+    <!-- PRODUCTION -->
+    <div class="panel" style="grid-column:span 12;position:relative;" id="panel-production">
+      <div class="panel-header ph-production"><span class="panel-title" id="prod-title">⚙️ Production Summary</span></div>
+      <div class="panel-body" id="prod-body"></div>
+      <div class="resizer"></div>
+    </div>
+
+    <!-- SANITATION — after Production -->
+    <div class="panel" style="grid-column:span 4;position:relative;" id="panel-sanitation">
+      <div class="panel-header ph-sanitation"><span class="panel-title">🧼 Sanitation</span></div>
+      <div class="panel-date" id="date-sanitation">—</div>
+      <div class="panel-body">
+        <div class="metric-row">
+          <div class="metric-box"><div class="metric-label">Pre-Op %</div><div class="metric-value" id="san-preop" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">MSS %</div><div class="metric-value" id="san-mss" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+        </div>
+        <div class="section-label">Sanitation Notes</div>
+        <div class="drivers-box" id="san-notes" contenteditable="true" oninput="saveManual(this.id)" style="min-height:60px;">—</div>
+      </div>
+      <div class="resizer"></div>
+    </div>
+
+    <!-- COSTS -->
+    <div class="panel" style="grid-column:span 4;position:relative;" id="panel-costs">
+      <div class="panel-header ph-costs"><span class="panel-title">💰 Costs</span></div>
+      <div class="panel-date" id="date-costs">—</div>
+      <div class="panel-body">
+        <table class="data-table">
+          <thead><tr><th>Metric</th><th>Direct</th><th>Indirect</th></tr></thead>
+          <tbody>
+            <tr><td>Cost / Lb</td><td id="cost-direct" contenteditable="true" oninput="saveManual(this.id)">—</td><td id="cost-indirect" contenteditable="true" oninput="saveManual(this.id)">—</td></tr>
+            <tr><td>Lb / hr</td><td id="pound-hr-direct" contenteditable="true" oninput="saveManual(this.id)">—</td><td id="pound-hr-indirect" contenteditable="true" oninput="saveManual(this.id)">—</td></tr>
+            <tr><td>Proj. Conversion</td><td colspan="2" id="conversion-costs" contenteditable="true" oninput="saveManual(this.id)">—</td></tr>
+            <tr><td>Lbs Produced</td><td colspan="2" id="pounds-prod" contenteditable="true" oninput="saveManual(this.id)">—</td></tr>
+          </tbody>
+        </table>
+        <div><div class="section-label">OT Trend by Dept — Last 30 Days</div><div class="chart-wrap" style="height:185px;"><canvas id="costs-ot-chart"></canvas></div></div>
+      </div>
+      <div class="resizer"></div>
+    </div>
+
+    <!-- HR -->
+    <div class="panel" style="grid-column:span 4;position:relative;" id="panel-hr">
+      <div class="panel-header ph-hr"><span class="panel-title">👥 HR | Training</span></div>
+      <div class="panel-date" id="date-hr">—</div>
+      <div class="panel-body">
+        <div class="metric-row">
+          <div class="metric-box"><div class="metric-label">Trainings Complete</div><div class="metric-value" id="trainings" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">Headcount Total</div><div class="metric-value" id="headcount" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">Meal Penalties</div><div class="metric-value" id="meal-penalties" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+        </div>
+        <div class="section-label">Trainings Completion</div>
+        <div class="chart-wrap" style="height:155px;"><canvas id="hr-chart"></canvas></div>
+      </div>
+      <div class="resizer"></div>
+    </div>
+
+    <!-- SAP -->
+    <div class="panel" style="grid-column:span 4;position:relative;" id="panel-sap">
+      <div class="panel-header ph-sap"><span class="panel-title">📊 SAP Metrics</span></div>
+      <div class="panel-date" id="date-sap">—</div>
+      <div class="panel-body">
+        <div class="metric-row">
+          <div class="metric-box"><div class="metric-label">Open Process Orders</div><div class="metric-value" id="proc-orders" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">Warehouse Tasks</div><div class="metric-value" id="warehouse-tasks" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+        </div>
+        <div class="chart-wrap" style="height:115px;"><canvas id="sap-orders-chart"></canvas></div>
+        <div class="chart-wrap" style="height:115px;"><canvas id="sap-teco-chart"></canvas></div>
+        <div class="chart-wrap" style="height:115px;"><canvas id="sap-cogi-chart"></canvas></div>
+      </div>
+      <div class="resizer"></div>
+    </div>
+
+    <!-- WAREHOUSE -->
+    <div class="panel" style="grid-column:span 4;position:relative;" id="panel-warehouse">
+      <div class="panel-header ph-warehouse"><span class="panel-title">🏭 Warehouse</span></div>
+      <div class="panel-date" id="date-warehouse">—</div>
+      <div class="panel-body">
+        <div class="metric-row">
+          <div class="metric-box"><div class="metric-label" id="wh-fill-label">Overall Fill Rate %</div><div class="metric-value" id="wh-fill" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label" id="wh-ce-fill-label">Second Site Fill Rate %</div><div class="metric-value" id="wh-ce-fill" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric-box"><div class="metric-label">Cases Scheduled</div><div class="metric-value" id="wh-scheduled" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          <div class="metric-box"><div class="metric-label">Cases Shipped</div><div class="metric-value" id="wh-shipped" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+        </div>
+        <div class="metric-box" style="background:var(--green-xll);border-color:var(--green-ll);text-align:center;padding:10px;">
+          <div class="metric-label" style="color:var(--green-d);font-weight:800;">CPMH — Cases / Man Hour</div>
+          <div class="metric-value" id="wh-cpmh" style="color:var(--green-d);" contenteditable="true" oninput="saveManual(this.id)">—</div>
+        </div>
+        <div class="chart-wrap" style="height:115px;"><canvas id="wh-fill-chart"></canvas></div>
+        <div class="chart-wrap" style="height:115px;"><canvas id="wh-ce-chart"></canvas></div>
+        <div class="chart-wrap" style="height:195px;"><canvas id="wh-cpmh-chart"></canvas></div>
+      </div>
+      <div class="resizer"></div>
+    </div>
+
+    <!-- INVENTORY -->
+    <div class="panel" style="grid-column:span 4;position:relative;" id="panel-inventory">
+      <div class="panel-header ph-inventory"><span class="panel-title">📦 Inventory Control</span></div>
+      <div class="panel-date" id="date-inventory">—</div>
+      <div class="panel-body">
+        <div class="split-row">
+          <div class="split-col">
+            <div class="col-label" id="inv-col1-label">Site 1</div>
+            <div class="metric-box"><div class="metric-label">Bins Counted</div><div class="metric-value" id="inv-bp-bins" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+            <div class="metric-box"><div class="metric-label">Materials Counted</div><div class="metric-value" id="inv-bp-materials" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+            <div class="metric-box"><div class="metric-label">Adjustments</div><div class="metric-value" id="inv-bp-variants" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          </div>
+          <div class="split-col">
+            <div class="col-label" id="inv-col2-label">Site 2</div>
+            <div class="metric-box"><div class="metric-label">Bins Counted</div><div class="metric-value" id="inv-ce-bins" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+            <div class="metric-box"><div class="metric-label">Materials Counted</div><div class="metric-value" id="inv-ce-materials" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+            <div class="metric-box"><div class="metric-label">Adjustments</div><div class="metric-value" id="inv-ce-variants" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
+          </div>
+        </div>
+        <div><div class="section-label">Notes</div><div class="drivers-box" id="inv-notes">—</div></div>
+      </div>
+      <div class="resizer"></div>
+    </div>
+        <!-- LEVEL 1 DDS HIGHLIGHTS -->
+    <div class="panel" style="grid-column:span 12;position:relative;" id="panel-highlights">
+      <div class="panel-header" style="background:linear-gradient(135deg,#0d1f18,#065f46);border-bottom:1px solid rgba(5,150,105,.3);">
+        <span class="panel-title">🏆 Level 1 DDS Highlights</span>
+        <span style="font-size:.68rem;color:rgba(255,255,255,.5);font-family:var(--mono);margin-left:auto;">Shared · updates in real time</span>
+      </div>
+      <div class="panel-body">
+        <div class="highlights-grid" id="highlights-grid"></div>
+      </div>
+    </div>
+  </div><!-- /dash-grid -->
+
+  <!-- Clear Overrides utility -->
+  <div style="text-align:right;margin-bottom:24px;">
+    <button class="btn btn-ghost" onclick="clearManuals()" style="font-size:.75rem;">↺ Clear Manual Overrides</button>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let workbook=null,GLOBAL_MAX_DATE=null,PROD_DATE_OVERRIDE=null;
+// OEE/Downtime (Production) and Code Red/Code Yellow (Maintenance) are
+// permanently L2L-owned, for every date, no exceptions -- see
+// fetchFromSharePoint().
+const TODAY=new Date();
+let autoRefreshTimer=null,autoRefreshOn=false;
+
+// ── Date utils ──
+const p2=n=>String(n).padStart(2,'0');
+function toDS(d){if(!d||isNaN(d.getTime()))return null;return`${d.getUTCFullYear()}-${p2(d.getUTCMonth()+1)}-${p2(d.getUTCDate())}`;}
+// Yesterday relative to the browser's real local "today" -- NOT derived
+// from any data field, so it stays correct even on days with no rows yet.
+// This is the default for apiDs (L2L-owned fields) below; the date picker
+// can still override it to look at any other day.
+function yesterdayStr(){const t=new Date();t.setDate(t.getDate()-1);return`${t.getFullYear()}-${p2(t.getMonth()+1)}-${p2(t.getDate())}`;}
+function parseDate(val){if(val==null||val==='')return null;const n=Number(val);if(!isNaN(n)&&val!=='')return new Date((n-25569)*86400*1000);const d=new Date(val);return isNaN(d.getTime())?null:new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));}
+function valByKey(row,field){if(!row)return null;const key=Object.keys(row).find(k=>k.trim().toLowerCase()===field.toLowerCase()||k.trim().toLowerCase().replace(/\s/g,'')===field.toLowerCase().replace(/\s/g,''));const v=row[key??field];if(v===''||v==null||String(v).includes('#')||v==='DNR')return null;return v;}
+function getLatestDate(data,reqField=null){let max=0;const limit=new Date();limit.setDate(limit.getDate()+7);data.forEach(row=>{const d=parseDate(row.Date);if(!d||isNaN(d.getTime())||d>=limit)return;if(reqField&&(valByKey(row,reqField)==null||valByKey(row,reqField)===''))return;if(d.getTime()>max)max=d.getTime();});if(!max)return null;const obj=new Date(max);return{str:toDS(obj),obj};}
+function setDateEl(id,result){const el=document.getElementById(id);if(!el)return null;if(!result){el.textContent='No Data';el.classList.add('stale');return null;}if(!GLOBAL_MAX_DATE||result.str>GLOBAL_MAX_DATE)GLOBAL_MAX_DATE=result.str;const d=new Date(result.obj.getUTCFullYear(),result.obj.getUTCMonth(),result.obj.getUTCDate());el.textContent=`Data: ${d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;return result.str;}
+function checkStale(id,ds){if(!GLOBAL_MAX_DATE||!ds)return;const el=document.getElementById(id);if(!el)return;if(ds<GLOBAL_MAX_DATE){const mD=new Date(GLOBAL_MAX_DATE),sD=new Date(ds),diff=Math.ceil(Math.abs(mD-sD)/864e5);if(mD.getUTCDay()===1&&sD.getUTCDay()===5&&diff<=3)return;el.classList.add('stale');el.textContent+=' ⚠';}else el.classList.remove('stale');}
+function getVal(data,field,ds){if(!ds)return null;const rows=data.filter(r=>toDS(parseDate(r.Date))===ds);if(!rows.length)return null;return valByKey(rows[rows.length-1],field);}
+function pct(val,dec=0){if(val==null||val===''||val==='DNR')return'—';const n=Number(val);return isNaN(n)?'—':(n<=2?n*100:n).toFixed(dec)+'%';}
+function yn(val){if(val==null)return'—';return['YES','Y','TRUE','1'].includes(String(val).toUpperCase())?'Yes':'No';}
+function set(id,val){const el=document.getElementById(id);if(el)el.textContent=(val==null?'—':val);}
+
+function getAggProd(prod,maxPts=30,limitDs){
+  const m=new Map();
+  prod.forEach(row=>{const d=parseDate(row.Date);if(!d)return;const ds=toDS(d);if(limitDs&&ds>limitDs)return;if(!m.has(ds))m.set(ds,{oee:[],att:[],dt:[],raw:d});const e=m.get(ds);const ov=Number(valByKey(row,'OEE'));if(!isNaN(ov))e.oee.push(ov<=2?ov*100:ov);const av=Number(valByKey(row,'Attainment'));if(!isNaN(av))e.att.push(av<=2?av*100:av);const dv=Number(valByKey(row,'Downtime'));if(!isNaN(dv))e.dt.push(dv);});
+  const keys=[...m.keys()].sort().slice(-maxPts);
+  const avg=arr=>arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;
+  return{labels:keys.map(k=>{const r=m.get(k).raw;return new Date(r.getUTCFullYear(),r.getUTCMonth(),r.getUTCDate()).toLocaleDateString();}),oee:keys.map(k=>avg(m.get(k).oee)),att:keys.map(k=>avg(m.get(k).att)),dt:keys.map(k=>m.get(k).dt.reduce((a,b)=>a+b,0))};
+}
+
+function getHist(data,field,maxPts=30,limitDs){
+  const m=new Map();
+  data.forEach(row=>{const d=parseDate(row.Date);if(!d)return;const ds=toDS(d);if(limitDs&&ds>limitDs)return;m.set(ds,{val:Number(valByKey(row,field))||0,raw:d});});
+  const keys=[...m.keys()].sort().slice(-maxPts);
+  return{labels:keys.map(k=>{const r=m.get(k).raw;return new Date(r.getUTCFullYear(),r.getUTCMonth(),r.getUTCDate()).toLocaleDateString();}),values:keys.map(k=>m.get(k).val)};
+}
+
+function getHistFiltered(data,filterFn,field,maxPts=30,limitDs){
+  const m=new Map();
+  data.filter(filterFn).forEach(row=>{const d=parseDate(row.Date);if(!d)return;const ds=toDS(d);if(limitDs&&ds>limitDs)return;const v=Number(valByKey(row,field));if(!isNaN(v)&&v!==0)m.set(ds,{val:v,raw:d});});
+  const keys=[...m.keys()].sort().slice(-maxPts);
+  return{labels:keys.map(k=>{const r=m.get(k).raw;return new Date(r.getUTCFullYear(),r.getUTCMonth(),r.getUTCDate()).toLocaleDateString();}),values:keys.map(k=>m.get(k).val)};
+}
+
+function regression(y){const n=y.length;if(n<2)return y;let sx=0,sy=0,sxy=0,sx2=0;for(let i=0;i<n;i++){sx+=i;sy+=y[i];sxy+=i*y[i];sx2+=i*i;}const sl=(n*sxy-sx*sy)/(n*sx2-sx*sx),ic=(sy-sl*sx)/n;return Array.from({length:n},(_,i)=>sl*i+ic);}
+
+// [migrated above]
+
+// [migrated above]
+
+// ══ PRODUCTION SUMMARY — built from a config ═══════════════════════════════
+// The panel is no longer hand-written HTML. It is drawn from a small config:
+//   plant-config.js "productionSummary"  (the plant's default), or
+//   whatever an admin saved in the database (dashboard_panel_config), or
+//   PROD_DEFAULT below (the original look) if neither exists.
+// Fields that L2L owns (OEE, Downtime, Code Red, Code Yellow) are always read
+// from L2L when it is switched on; nobody can type over them.
+const PROD_FORMATS = { percent0:'Percent (95%)', percent1:'Percent (95.2%)', minutes:'Minutes (12m)', number:'Number', decimal2:'Number, 2 decimals', text:'Text', yesno:'Yes / No' };
+const PROD_AGGS    = { last:'Latest entry', sum:'Total', avg:'Average' };
+const PROD_L2L     = { 'Production':['OEE','Downtime'], 'Maintenance':['Code Red','Code Yellow'] };
+function prodIsL2L(sheetName, field){
+  const l = window.PLANT_CONFIG && PLANT_CONFIG.sources && PLANT_CONFIG.sources.l2l;
+  return !!(l && l.enabled && (PROD_L2L[sheetName]||[]).includes(field));
+}
+const PROD_DEFAULT = {
+  title:'Production Summary', icon:'⚙️', lines:'all',
+  left:{ show:true, title:"Today's Operational Status", pills:[ {label:'STARTUP', field:'Start Up'}, {label:'CIL', field:'CIL'} ] },
+  right:{
+    show:true, title:"Yesterday's Performance", dateMode:'yesterday', picker:true,
+    tiles:[
+      { id:'code-red',    label:'Code Red',    sheet:'Maintenance', field:'Code Red',    agg:'last', format:'number', date:'selected' },
+      { id:'code-yellow', label:'Code Yellow', sheet:'Maintenance', field:'Code Yellow', agg:'last', format:'number', date:'selected' }
+    ],
+    drivers:{ show:true, title:'Top Downtime Drivers', fields:['Mechanical Downtime Drivers','Material Downtime Drivers'] },
+    table:{ show:true, title:'Lines', columns:[
+      { label:'OEE',        field:'OEE',        agg:'avg', format:'percent0', date:'selected', thresholds:{ redMax:0.60, amberMax:0.65 } },
+      { label:'Attainment', field:'Attainment', agg:'avg', format:'percent1', date:'latest' },
+      { label:'DT',         field:'Downtime',   agg:'sum', format:'minutes',  date:'selected' }
+    ] }
+  },
+  totals:{ show:true, tiles:[
+    { id:'pounds-planned',  label:'Pounds Planned',  sheet:'Production', field:'Expected Pounds', agg:'sum', format:'number', date:'latest' },
+    { id:'pounds-produced', label:'Pounds Produced', sheet:'Production', field:'Actual Pounds',   agg:'sum', format:'number', date:'latest' }
+  ] }
+};
+let PROD_DB = null, PROD_SAVED = null, PROD_CFG = null, PROD_SIG = '';   // PROD_DB = what is stored for everyone; PROD_SAVED = what is on screen (stored, or a draft)
+
+// Cleans any config (from the database, a layout file or the editor) so a typo
+// can never break the dashboard: unknown values fall back to safe ones.
+function prodSanitize(raw){
+  const D = PROD_DEFAULT, r = (raw && typeof raw==='object') ? raw : {};
+  const str = (v, d, max)=> (typeof v==='string' && v.trim()) ? v.trim().slice(0, max||80) : d;
+  const bool = (v, d)=> typeof v==='boolean' ? v : d;
+  const fmt = (v, d)=> PROD_FORMATS[v] ? v : d;
+  const agg = (v, d)=> PROD_AGGS[v] ? v : d;
+  const dt  = (v, d)=> (v==='latest'||v==='selected') ? v : d;
+  const used = new Set();
+  const tile = (t, i, pre)=>{
+    t = (t && typeof t==='object') ? t : {};
+    let id = (typeof t.id==='string' && /^[a-z][a-z0-9-]{1,40}$/.test(t.id)) ? t.id : (pre + '-' + (i+1));
+    while(used.has(id)) id += 'x';
+    used.add(id);
+    return { id, label:str(t.label,'Metric',40), sheet:str(t.sheet,'Production',60), field:str(t.field,'',80),
+             agg:agg(t.agg,'last'), format:fmt(t.format,'number'), date:dt(t.date,'selected') };
+  };
+  const col = (c)=>{
+    c = (c && typeof c==='object') ? c : {};
+    const o = { label:str(c.label,'Column',24), field:str(c.field,'',80), agg:agg(c.agg,'avg'), format:fmt(c.format,'number'), date:dt(c.date,'selected') };
+    if(c.thresholds && Number.isFinite(+c.thresholds.redMax) && Number.isFinite(+c.thresholds.amberMax)) o.thresholds = { redMax:+c.thresholds.redMax, amberMax:+c.thresholds.amberMax };
+    return o;
+  };
+  const L = r.left || {}, R = r.right || {}, T = r.totals || {};
+  const lines = (r.lines==='all' || !Array.isArray(r.lines)) ? 'all' : r.lines.map(x=>String(x)).filter(Boolean);
+  const out = {
+    title:str(r.title,D.title,60), icon:typeof r.icon==='string' ? r.icon.slice(0,8) : D.icon, lines,
+    left:{ show:bool(L.show,true), title:str(L.title,D.left.title,60),
+           pills:(Array.isArray(L.pills)?L.pills:D.left.pills).slice(0,6).map(p=>({ label:str(p&&p.label,'',12), field:str(p&&p.field,'',80) })).filter(p=>p.label&&p.field) },
+    right:{ show:bool(R.show,true), title:str(R.title,D.right.title,60),
+            dateMode:['yesterday','latest','today'].includes(R.dateMode)?R.dateMode:'yesterday', picker:bool(R.picker,true),
+            tiles:(Array.isArray(R.tiles)?R.tiles:D.right.tiles).slice(0,8).map((t,i)=>tile(t,i,'ptile')).filter(t=>t.field),
+            drivers:{ show:bool(R.drivers&&R.drivers.show,true), title:str(R.drivers&&R.drivers.title,D.right.drivers.title,60),
+                      fields:(Array.isArray(R.drivers&&R.drivers.fields)?R.drivers.fields:D.right.drivers.fields).map(x=>str(x,'',80)).filter(Boolean).slice(0,6) },
+            table:{ show:bool(R.table&&R.table.show,true), title:str(R.table&&R.table.title,D.right.table.title,40),
+                    columns:(Array.isArray(R.table&&R.table.columns)?R.table.columns:D.right.table.columns).slice(0,8).map(col).filter(c=>c.field) } },
+    totals:{ show:bool(T.show,true), tiles:(Array.isArray(T.tiles)?T.tiles:D.totals.tiles).slice(0,8).map((t,i)=>tile(t,i,'ptotal')).filter(t=>t.field) }
+  };
+  return out;
+}
+function prodResolve(){
+  const plantCfg = window.PLANT_CONFIG && PLANT_CONFIG.productionSummary;
+  return prodSanitize(PROD_SAVED || plantCfg || PROD_DEFAULT);
+}
+function prodLineList(cfg){
+  const all = ((window.ACTIVE_PLANT && window.ACTIVE_PLANT.lines) || []);
+  return cfg.lines==='all' ? all : cfg.lines.filter(l=>all.includes(l));
+}
+function prodLineLabel(code){
+  const ln = ((window.PLANT_CONFIG && PLANT_CONFIG.lines) || []).find(l=>l.code===code);
+  return (ln && ln.label) || code;
+}
+function prodFmt(v, format){
+  if(v==null || v==='') return '—';
+  switch(format){
+    case 'percent0': return pct(v,0);
+    case 'percent1': return pct(v,1);
+    case 'minutes':  { const n=Number(v); return isNaN(n)?'—':n.toFixed(0)+'m'; }
+    case 'decimal2': { const n=Number(v); return isNaN(n)?'—':n.toFixed(2); }
+    case 'number':   { const n=Number(v); return isNaN(n)?String(v):n.toLocaleString(undefined,{maximumFractionDigits:2}); }
+    case 'yesno':    return yn(v);
+    default:         return String(v);
+  }
+}
+function prodAggregate(rows, field, agg){
+  const vals = rows.map(r=>valByKey(r,field)).filter(v=>v!=null);
+  if(!vals.length) return null;
+  if(agg==='last') return vals[vals.length-1];
+  const nums = vals.map(Number).filter(n=>!isNaN(n));
+  if(!nums.length) return null;
+  const s = nums.reduce((a,b)=>a+b,0);
+  return agg==='sum' ? s : s/nums.length;
+}
+function prodRowsOn(rows, ds){ return ds ? rows.filter(r=>toDS(parseDate(r.Date))===ds) : []; }
+function prodDsFor(item, rows, selectedDs){
+  if(item.date==='latest'){ const l = getLatestDate(rows); return l ? l.str : null; }
+  return selectedDs;
+}
+function prodSelectedDs(cfg){
+  if(PROD_DATE_OVERRIDE) return PROD_DATE_OVERRIDE;
+  const m = cfg.right.dateMode;
+  if(m==='latest'){ const l = getLatestDate(sheet('Production')); return l ? l.str : yesterdayStr(); }
+  if(m==='today'){ const t=new Date(); return `${t.getFullYear()}-${p2(t.getMonth()+1)}-${p2(t.getDate())}`; }
+  return yesterdayStr();
+}
+function prodTileHtml(t){
+  const owned = prodIsL2L(t.sheet, t.field);
+  return `<div class="metric-box"><div class="metric-label">${cwEsc(t.label)}${owned?' <span class="l2l-badge" title="Filled automatically from L2L">L2L</span>':''}</div>`+
+         `<div class="metric-value" id="${t.id}" contenteditable="true" oninput="saveManual(this.id)">—</div></div>`;
+}
+// Draws the empty frame (titles, tiles, table header). Values are filled by prodRender().
+function prodBuild(cfg){
+  const sig = JSON.stringify(cfg) + '|' + prodLineList(cfg).join(',');
+  const body = document.getElementById('prod-body'); if(!body) return;
+  if(sig===PROD_SIG) return;
+  PROD_SIG = sig;
+  const tt = document.getElementById('prod-title'); if(tt) tt.textContent = (cfg.icon?cfg.icon+' ':'') + cfg.title;
+  const L = cfg.left, R = cfg.right;
+  const left = !L.show ? '' : `<div>
+      <div class="timeframe-block tf-today"><div class="timeframe-title">${cwEsc(L.title)}</div><div class="timeframe-date" id="today-date-label">—</div></div>
+      <div class="split-row"><div class="split-col"><div class="col-label">Lines</div><div class="readiness-stack" id="readiness-lines"></div></div></div>
+    </div>`;
+  const tiles = R.tiles.map(prodTileHtml).join('');
+  const drivers = !R.drivers.show ? '' : `<div style="flex:2;min-width:180px"><div class="section-label">${cwEsc(R.drivers.title)}</div><div class="drivers-box alert" id="top-drivers">Scanning data…</div></div>`;
+  const table = !(R.table.show && R.table.columns.length) ? '' : `<div class="split-row" style="margin-top:12px;"><div class="split-col"><div class="col-label">${cwEsc(R.table.title)}</div>
+      <table class="data-table"><thead><tr><th>Line</th>${R.table.columns.map(c=>`<th>${cwEsc(c.label)}${prodIsL2L('Production',c.field)?' <span class="l2l-badge" title="Filled automatically from L2L">L2L</span>':''}</th>`).join('')}</tr></thead><tbody id="tbody-lines"></tbody></table></div></div>`;
+  const totals = !(cfg.totals.show && cfg.totals.tiles.length) ? '' : `<div class="metric-row prod-totals" style="margin-top:12px;">${cfg.totals.tiles.map(prodTileHtml).join('')}</div>`;
+  const picker = !R.picker ? '' : `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;font-size:11px;">
+        <input type="date" id="prod-date-picker" onchange="setProdDate(this.value)" style="font:inherit;padding:2px 6px;">
+        <a href="javascript:void(0)" onclick="setProdDate(null)" style="text-decoration:underline;cursor:pointer;white-space:nowrap;">Use default</a></div>`;
+  const right = !R.show ? '' : `<div>
+      <div class="timeframe-block tf-yesterday"><div class="timeframe-title">${cwEsc(R.title)}</div><div class="timeframe-date" id="yesterday-date-label">—</div>${picker}
+        <div id="prod-date-hint" style="margin-top:4px;font-size:10px;opacity:.7;"></div></div>
+      ${(tiles||drivers) ? `<div class="metric-row" style="flex-wrap:wrap;">${tiles}${drivers}</div>` : ''}
+      ${table}${totals}
+    </div>`;
+  body.innerHTML = `<div class="prod-split${(L.show&&R.show)?'':' prod-one'}">${left}${right}</div>`;
+  // Tiles can be typed over locally (same as every other tile), so they join the manual-override list.
+  cfg.right.tiles.concat(cfg.totals.tiles).forEach(t=>{ if(typeof MANUAL_IDS!=='undefined' && !MANUAL_IDS.includes(t.id)) MANUAL_IDS.push(t.id); });
+  if(typeof applyHidden==='function') applyHidden();
+}
+function prodRender(){
+  const cfg = PROD_CFG = prodResolve();
+  prodBuild(cfg);
+  const prod = sheet('Production');
+  const selDs = prodSelectedDs(cfg);
+  const picker = document.getElementById('prod-date-picker');
+  if(picker && document.activeElement!==picker) picker.value = selDs || '';
+  const fmtDay = ds=>{ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(ds||''); return m ? new Date(+m[1],+m[2]-1,+m[3]).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : '—'; };
+  const todEl = document.getElementById('today-date-label'); if(todEl) todEl.textContent = TODAY.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  const yEl = document.getElementById('yesterday-date-label'); if(yEl) yEl.textContent = fmtDay(selDs);
+  // Tell people which numbers follow a different day than the one in the header.
+  const latestDs = (getLatestDate(prod)||{}).str;
+  const followsLatest = cfg.right.tiles.concat(cfg.totals.tiles).filter(t=>t.date==='latest').map(t=>t.label)
+    .concat(cfg.right.table.columns.filter(c=>c.date==='latest').map(c=>c.label));
+  const hint = document.getElementById('prod-date-hint');
+  if(hint) hint.textContent = followsLatest.length ? `${followsLatest.join(', ')} always show the latest day with data (${fmtDay(latestDs)}).` : '';
+
+  // Tiles (both groups)
+  cfg.right.tiles.concat(cfg.totals.tiles).forEach(t=>{
+    const rows = sheet(t.sheet);
+    const ds = prodDsFor(t, rows, selDs);
+    let v = prodAggregate(prodRowsOn(rows, ds), t.field, t.agg);
+    if(t.agg==='sum' && v===0) v = null;     // a total of zero means "nothing reported yet"
+    const el = document.getElementById(t.id); if(el) el.textContent = prodFmt(v, t.format);
+  });
+  // Drivers (text field written by Power Automate; counted across the latest day)
+  const tdEl = document.getElementById('top-drivers');
+  if(tdEl){
+    const counts = {};
+    prodRowsOn(prod, latestDs).forEach(r=>{ cfg.right.drivers.fields.forEach(col=>{
+      const v = r[col]; if(v && v!=='DNR' && v!=='None' && v!=='') String(v).split(/[;,]/).forEach(d=>{ const c=d.trim(); if(c.length>2) counts[c]=(counts[c]||0)+1; });
+    }); });
+    tdEl.textContent = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n,c])=>`• ${n} (${c})`).join('\n') || 'No drivers reported.';
+  }
+  // Per-line readiness cards and table
+  const lines = prodLineList(cfg);
+  const isLine = (r, line)=> String(valByKey(r,'Line')||'').trim().toUpperCase() === String(line).toUpperCase();
+  const grid = document.getElementById('readiness-lines');
+  if(grid){
+    grid.innerHTML = '';
+    lines.forEach(line=>{
+      const rows = prodRowsOn(prod, latestDs).filter(r=>isLine(r,line));
+      const card = document.createElement('div'); card.className = 'readiness-card';
+      card.innerHTML = `<div class="readiness-line">${cwEsc(prodLineLabel(line))}</div>` + cfg.left.pills.map(p=>{
+        const vals = rows.map(r=>valByKey(r,p.field)).filter(v=>v!=null);
+        const ok = vals.length>0 && !vals.some(v=>yn(v)==='No') && vals.some(v=>yn(v)==='Yes');
+        return `<div class="status-pill ${ok?'pill-yes':'pill-no'}"><span class="pill-label">${cwEsc(p.label)}</span><span>${ok?'✓':'✗'}</span></div>`;
+      }).join('');
+      grid.appendChild(card);
+    });
+  }
+  const tbody = document.getElementById('tbody-lines');
+  if(tbody){
+    tbody.innerHTML = '';
+    lines.forEach(line=>{
+      const tr = document.createElement('tr');
+      let h = `<td style="font-weight:700">${cwEsc(prodLineLabel(line))}</td>`;
+      cfg.right.table.columns.forEach(c=>{
+        const rows = sheet('Production');
+        const ds = prodDsFor(c, rows, selDs);
+        const v = prodAggregate(prodRowsOn(rows, ds).filter(r=>isLine(r,line)), c.field, c.agg);
+        let cls = '';
+        if(c.thresholds && v!=null && !isNaN(Number(v))){
+          const n = Number(v)<=2 ? Number(v) : Number(v)/100;
+          cls = n<=c.thresholds.redMax ? 'td-red' : n<c.thresholds.amberMax ? 'td-amber' : 'td-green';
+        }
+        h += `<td class="${cls}">${cwEsc(prodFmt(v, c.format))}</td>`;
+      });
+      tr.innerHTML = h; tbody.appendChild(tr);
+    });
+  }
+}
+async function loadProdConfig(){
+  PROD_DB = null;
+  if(window.NovusDB && NovusDB.panelConfig && window.ACTIVE_PLANT){
+    try{
+      const { data, error } = await NovusDB.panelConfig.get(window.ACTIVE_PLANT.id, 'panel-production');
+      if(!error && data && data.config && Object.keys(data.config).length) PROD_DB = data.config;
+    }catch(e){ console.warn('production config load failed (non-fatal):', e); }
+  }
+  PROD_SAVED = (LS.draft && lsDirty() && LS.draft.prod !== undefined) ? LS.draft.prod : PROD_DB;
+}
+
+const CITIES_CFG=(window.PLANT_CONFIG.cities||[]).filter(c=>c&&c.name);
+function renderDashboard(){
+  if(!workbook)return;
+  GLOBAL_MAX_DATE=null;
+  const hr=sheet('HR | Training'),qa=sheet('QA'),prod=sheet('Production'),fin=sheet('Finance'),sap=sheet('SAP'),wh=sheet('Warehouse'),inv=sheet('Inventory Control'),maint=sheet('Maintenance');
+  // The Warehouse and Inventory panels compare two sites. Their names come from plant-config.js "cities"
+  // (first = main site, second = the other one). No cities configured: everything counts as the main site.
+  const siteIs=(r,name)=>String(valByKey(r,'City')||'').toLowerCase().trim()===String(name).toLowerCase().trim();
+  const isBP=CITIES_CFG[0]?(r=>siteIs(r,CITIES_CFG[0].name)):(r=>true);
+  const isCE=CITIES_CFG[1]?(r=>siteIs(r,CITIES_CFG[1].name)):(r=>false);
+  (()=>{ const t=(id,v)=>{ const e=document.getElementById(id); if(e&&v) e.textContent=v; };
+    t('wh-fill-label',(CITIES_CFG[0]||{}).fillLabel||'Fill Rate %'); t('wh-ce-fill-label',(CITIES_CFG[1]||{}).fillLabel||'Second Site Fill Rate %');
+    t('inv-col1-label',(CITIES_CFG[0]||{}).name||'All sites'); t('inv-col2-label',(CITIES_CFG[1]||{}).name||'Second site');
+    const second=document.getElementById('wh-ce-fill'); if(second&&!CITIES_CFG[1]) second.closest('.metric-box').style.display='none';
+    const c2=document.getElementById('inv-col2-label'); if(c2&&!CITIES_CFG[1]) c2.closest('.split-col').style.display='none'; })();
+  const bpWH=wh.filter(isBP);
+
+  const dHR=setDateEl('date-hr',getLatestDate(hr)),dQA=setDateEl('date-quality',getLatestDate(qa)),dProd=setDateEl('date-production'||'dummy',getLatestDate(prod,'Start Up'));
+  setDateEl('date-sanitation',getLatestDate(qa)); // Sanitation data lives in the QA sheet
+  // The Production Summary panel picks its own dates (see prodRender).
+  const dFin=setDateEl('date-costs',getLatestDate(fin)),dSAP=setDateEl('date-sap',getLatestDate(sap)),dWH=setDateEl('date-warehouse',getLatestDate(bpWH)),dInv=setDateEl('date-inventory',getLatestDate(inv));
+  const safEl=document.getElementById('date-safety');if(safEl&&dHR){safEl.textContent=document.getElementById('date-hr')?.textContent||'';}
+
+  const hdrEl=document.getElementById('date-header');if(hdrEl)hdrEl.textContent=`Today: ${TODAY.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}`;
+
+  [['date-safety',dHR],['date-quality',dQA],['date-costs',dFin],['date-hr',dHR],['date-sap',dSAP],['date-warehouse',dWH],['date-inventory',dInv]].forEach(([id,d])=>checkStale(id,d));
+
+  // Safety/HR
+  set('days-incident',getVal(hr,'Days Without Incident',dHR));set('near-misses',getVal(hr,'Near Miss Reports',dHR));set('safety-audits',getVal(hr,'Safety Audits',dHR));set('meal-penalties',getVal(hr,'Number of Meal Penalties',dHR));
+  const trainVal=getVal(hr,'Trainings Complete',dHR)??0;set('trainings',pct(trainVal));
+  const hcd=Number(getVal(hr,'Head Count - Direct',dHR)||0),hci=Number(getVal(hr,'Head Count - Indirect',dHR)||0);set('headcount',(hcd+hci)>0?hcd+hci:null);
+  // Quality
+  set('holds',getVal(qa,'Holds',dQA));set('holds-coa',getVal(qa,'Holds/COA',dQA));set('pem',pct(getVal(qa,'PEM %',dQA),1));set('complaints',getVal(qa,'Number of Complaints',dQA));
+  set('san-preop',pct(getVal(qa,'Pre-Op %',dQA)??getVal(qa,'Pre-Op',dQA),1));set('san-mss',pct(getVal(qa,'MSS Completion %',dQA)??getVal(qa,'MSS %',dQA)??getVal(qa,'MSS',dQA),1));
+  const snEl=document.getElementById('san-notes');if(snEl)snEl.textContent=getVal(qa,'Sanitation Notes',dQA)||'No sanitation notes reported.';
+  // Costs
+  set('cost-direct',getVal(fin,'$/Pound - Direct',dFin));set('cost-indirect',getVal(fin,'$/Pound - Indirect',dFin));set('pound-hr-direct',getVal(fin,'Pounds/hour - Direct',dFin));set('pound-hr-indirect',getVal(fin,'Pounds/hour - Indirect',dFin));set('conversion-costs',getVal(fin,'Conversion Cost',dFin));set('pounds-prod',getVal(fin,'Pounds Produced',dFin));
+  // Production Summary is drawn from its config (Code Red/Yellow, OEE, line table, pounds, drivers).
+  prodRender();
+  if(window.EDIT) EDIT.decorate();
+  // SAP
+  set('proc-orders',getVal(sap,'Open Process Orders',dSAP));set('warehouse-tasks',getVal(sap,'Warehouse Tasks',dSAP));
+  // Warehouse
+  const whBP=bpWH.find(r=>toDS(parseDate(r.Date))===dWH),whCE=wh.filter(isCE).find(r=>toDS(parseDate(r.Date))===dWH);
+  set('wh-fill',pct(whBP?valByKey(whBP,'Fill Rate %'):null,1));set('wh-ce-fill',pct(whCE?valByKey(whCE,'Fill Rate %'):null,1));set('wh-scheduled',whBP?valByKey(whBP,'Number of cases scheduled to ship'):null);set('wh-shipped',whBP?valByKey(whBP,'Number of cases shipped'):null);
+  const cpmhVal=whCE?valByKey(whCE,'CPMH'):null;set('wh-cpmh',cpmhVal!=null?Number(cpmhVal).toFixed(2):null);
+  // Inventory
+  // Inventory — split by city, Notes from BP row
+  const invBP=inv.filter(isBP).find(r=>toDS(parseDate(r.Date))===dInv);
+  const invCE=inv.filter(isCE).find(r=>toDS(parseDate(r.Date))===dInv);
+  set('inv-bp-bins',      invBP ? valByKey(invBP,'Bins Counted')      : null);
+  set('inv-bp-materials', invBP ? valByKey(invBP,'Materials Counted') : null);
+  set('inv-bp-variants',  invBP ? valByKey(invBP,'Variants')          : null);
+  set('inv-ce-bins',      invCE ? valByKey(invCE,'Bins Counted')      : null);
+  set('inv-ce-materials', invCE ? valByKey(invCE,'Materials Counted') : null);
+  set('inv-ce-variants',  invCE ? valByKey(invCE,'Variants')          : null);
+  const inEl=document.getElementById('inv-notes');if(inEl)inEl.textContent=(invBP?valByKey(invBP,'Notes'):null)||'No inventory notes for this date.';
+  loadManuals();
+  renderCustomWidgets();
+  applyMetricSources();
+  setTimeout(()=>drawCharts(prod,fin,sap,bpWH,whBP,whCE,trainVal,wh,isCE,isBP),60);
+  setTimeout(applyMetricSources,160);   // after the built-in charts draw, so redirected tiles/gauges win
+}
+
+function drawCharts(prod,fin,sap,bpWH,whBP,whCE,trainVal,wh,isCE,isBP){
+  const pd=getAggProd(prod,30);
+  if(pd.labels.length)mkChart('production-chart','line',pd.labels,[{label:'OEE',data:pd.oee,borderColor:'#059669',backgroundColor:'rgba(5,150,105,.08)',fill:true},{label:'Attainment',data:pd.att,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,.08)',fill:true},{label:'Downtime',data:pd.dt,borderColor:'#ef4444',type:'bar',fill:true,yAxisID:'y1'}],{title:'OEE & Attainment — 30 Days',y:{max:100},y1:{position:'right',grid:{drawOnChartArea:false}}});
+
+  const dtMap=new Map();fin.forEach(r=>{const d=parseDate(r.Date);if(!d)return;const ds=toDS(d);if(!dtMap.has(ds))dtMap.set(ds,{raw:d,qa:0,prod:0,wh:0,maint:0});const e=dtMap.get(ds);e.qa+=parseFloat(valByKey(r,'OT - QA'))||0;e.prod+=parseFloat(valByKey(r,'OT-Production'))||0;e.wh+=parseFloat(valByKey(r,'OT - Warehouse'))||0;e.maint+=parseFloat(valByKey(r,'OT - Maintenance'))||0;});
+  const ck=[...dtMap.keys()].sort().slice(-30);
+  if(ck.length)mkChart('costs-ot-chart','line',ck.map(k=>new Date(dtMap.get(k).raw).toLocaleDateString()),[{label:'QA',data:ck.map(k=>dtMap.get(k).qa),borderColor:'#8ea99d'},{label:'Prod',data:ck.map(k=>dtMap.get(k).prod),borderColor:'#ef4444'},{label:'WH',data:ck.map(k=>dtMap.get(k).wh),borderColor:'#b45309'},{label:'Maint',data:ck.map(k=>dtMap.get(k).maint),borderColor:'#3b82f6'},{label:'Trend',data:regression(ck.map(k=>dtMap.get(k).qa+dtMap.get(k).prod+dtMap.get(k).wh+dtMap.get(k).maint)),borderColor:'#059669',borderDash:[8,4]}],{title:'OT Hours by Department',legendPos:'right'});
+
+  mkDoughnut('hr-chart',trainVal,'Complete');
+  [['sap-orders-chart','Open Process Orders','#b45309'],['sap-teco-chart','TECO','#3b82f6'],['sap-cogi-chart','COGI','#ef4444']].forEach(([id,field,color])=>{const d=getHist(sap,field,30);if(d.labels.length)mkChart(id,'line',d.labels,[{label:field,data:d.values,borderColor:color,fill:false}],{title:field});});
+
+  mkDoughnut('wh-fill-chart',whBP?valByKey(whBP,'Fill Rate %'):0,((CITIES_CFG[0]||{}).fillLabel)||'Fill Rate %');mkDoughnut('wh-ce-chart',whCE?valByKey(whCE,'Fill Rate %'):0,((CITIES_CFG[1]||{}).fillLabel)||'Second Site Fill Rate %');
+  const ceWH=wh.filter(isCE);const cpmhH=getHistFiltered(ceWH,()=>true,'CPMH',30);
+  if(cpmhH.labels.length){const el=document.getElementById('wh-cpmh-chart');if(el){const e=Chart.getChart(el);if(e)e.destroy();}new Chart(el.getContext('2d'),{data:{labels:cpmhH.labels,datasets:[{type:'bar',label:'CPMH',data:cpmhH.values,backgroundColor:'rgba(5,150,105,.7)',borderRadius:3,borderWidth:0},{type:'line',label:'Target (450)',data:Array(cpmhH.labels.length).fill(450),borderColor:'#ef4444',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false}]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},plugins:{title:{display:true,text:'CPMH — Cases Per Man Hour',font:{family:"'DM Sans'",size:11,weight:'700'},color:'#2d4438',padding:{bottom:6}},legend:{display:true,position:'bottom',labels:{font:CD.font,color:CD.tick,boxWidth:10,padding:8}},tooltip:{backgroundColor:'rgba(13,31,24,.9)',padding:10,cornerRadius:8}},scales:{x:{grid:{color:CD.grid},ticks:{font:CD.mono,color:CD.tick,maxTicksLimit:8,maxRotation:40}},y:{beginAtZero:true,grid:{color:CD.grid},ticks:{font:CD.mono,color:CD.tick}}}}});}
+}
+
+// ── Manual overrides ──
+const MANUAL_IDS=['days-incident','near-misses','safety-audits','meal-penalties','holds','holds-coa','pem','complaints','san-preop','san-mss','san-notes','code-red','code-yellow','cost-direct','cost-indirect','pound-hr-direct','pound-hr-indirect','conversion-costs','pounds-prod','pounds-produced','pounds-planned','trainings','headcount','proc-orders','warehouse-tasks','wh-fill','wh-ce-fill','wh-scheduled','wh-shipped','wh-cpmh','inv-bp-bins','inv-bp-materials','inv-bp-variants','inv-ce-bins','inv-ce-materials','inv-ce-variants'];
+// Namespaced per plant so two plants sharing this one page/origin never
+// bleed manual overrides into each other.
+function manualKey(id){return 'dds_m_'+((window.ACTIVE_PLANT&&window.ACTIVE_PLANT.id)||'default')+'_'+id;}
+function saveManual(id){localStorage.setItem(manualKey(id),document.getElementById(id).innerText);}
+function loadManuals(){MANUAL_IDS.forEach(id=>{const v=localStorage.getItem(manualKey(id));if(v){const el=document.getElementById(id);if(el)el.innerText=v;}});}
+function clearManuals(){if(!confirm('Clear all manual overrides?'))return;MANUAL_IDS.forEach(id=>localStorage.removeItem(manualKey(id)));renderDashboard();}
+
+// Lets a user pin the Production Summary (OEE/Attainment/DT/Start Up/CIL/pounds/
+// top drivers) to an exact date instead of relying on auto-detecting Power
+// Automate's latest day — useful around weekends/long weekends where "latest"
+// can land on a different day than expected. Pass null/empty to go back to
+// auto-detect. This only re-picks a date already present in the loaded data
+// (dashboard-data.json + l2l-data.json) — it can't call the L2L API live from
+// the browser (that's blocked by CORS and would expose the API key).
+function setProdDate(val){PROD_DATE_OVERRIDE=val||null;renderDashboard();}
+
+// ── Auto-refresh ──
+function updateClock(){
+  const t=new Date().toLocaleTimeString();
+  const el=document.getElementById('psb-clock');
+  if(el)el.textContent=t;
+}
+function toggleAutoRefresh(){autoRefreshOn=!autoRefreshOn;document.getElementById('auto-toggle').classList.toggle('on',autoRefreshOn);if(autoRefreshOn)scheduleRefresh();else{clearTimeout(autoRefreshTimer);autoRefreshTimer=null;}}
+function updateInterval(){if(autoRefreshOn){clearTimeout(autoRefreshTimer);scheduleRefresh();}}
+function scheduleRefresh(){const mins=parseInt(document.getElementById('interval-sel').value,10);autoRefreshTimer=setTimeout(()=>{if(autoRefreshOn){fetchFromSharePoint();scheduleRefresh();}},mins*60*1000);}
+
+// toggleMore/closeMore defined in novus-core.js
+
+// ══ FRESHNESS BADGE ══════════════════════════════════════════════════════
+function updateFreshnessBadge(){
+  const badge=document.getElementById('freshness-badge');
+  const text=document.getElementById('freshness-text');
+  if(!badge||!text)return;
+
+  if(!GLOBAL_MAX_DATE){
+    badge.className='freshness-badge';
+    text.textContent='No data';
+    return;
+  }
+
+  // Parse the latest data date from the workbook
+  const dateParts=GLOBAL_MAX_DATE.split('-');
+  const dataDate=new Date(Date.UTC(+dateParts[0],+dateParts[1]-1,+dateParts[2]));
+  const now=new Date();
+  const hoursOld=(now-dataDate)/(1000*60*60);
+
+  const fmt=d=>d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+
+  if(hoursOld<24){
+    badge.className='freshness-badge fresh';
+    text.textContent=`Updated ${fmt(dataDate)}`;
+  } else if(hoursOld<48){
+    badge.className='freshness-badge stale';
+    text.textContent=`${Math.round(hoursOld)}h old — review`;
+  } else {
+    badge.className='freshness-badge old';
+    text.textContent=`${Math.floor(hoursOld/24)}d old — stale data`;
+  }
+}
+
+// ══ PLANT STATUS BAR ═════════════════════════════════════════════════════
+function updatePlantStatusBar(){
+  if(!workbook)return;
+
+  const prod=sheet('Production');
+  const maint=sheet('Maintenance');
+
+  // Latest OEE date → average across all lines
+  const latestProdDate=getLatestDate(prod,'OEE');
+  const dProd=latestProdDate?.str;
+  let avgOEE=null;
+
+  if(dProd){
+    const rows=prod.filter(r=>toDS(parseDate(r.Date))===dProd);
+    const vals=rows
+      .map(r=>{const v=Number(valByKey(r,'OEE'));return isNaN(v)?null:(v<=2?v*100:v);})
+      .filter(v=>v!==null&&v>0);
+    if(vals.length) avgOEE=vals.reduce((a,b)=>a+b,0)/vals.length;
+  }
+
+  // Code Red from Maintenance sheet
+  const dMaint=getLatestDate(maint)?.str;
+  const codeRed=dMaint?Number(getVal(maint,'Code Red',dMaint))||0:0;
+
+  // Lines active today
+  const activeLines=dProd
+    ? [...new Set(prod.filter(r=>toDS(parseDate(r.Date))===dProd).map(r=>valByKey(r,'Line')).filter(Boolean))]
+    : [];
+
+  // ── Status logic ──
+  // Green:  OEE ≥ 65% AND Code Red = 0
+  // Amber:  OEE ≥ 55% OR Code Red = 1
+  // Red:    OEE < 55% OR Code Red > 1
+  let status,statusText;
+  if(avgOEE!==null&&avgOEE>=65&&codeRed===0){
+    status='green'; statusText='Running Normal';
+  } else if((avgOEE!==null&&avgOEE>=55)||codeRed===1){
+    status='amber'; statusText='Attention Required';
+  } else {
+    status='red'; statusText='Action Required';
+  }
+
+  // Apply to DOM
+  const bar=document.getElementById('plant-status-bar');
+  if(bar) bar.dataset.status=status;
+
+  const stEl=document.getElementById('psb-status-text');
+  if(stEl) stEl.textContent=statusText;
+
+  const oeeEl=document.getElementById('psb-oee');
+  if(oeeEl) oeeEl.textContent=avgOEE!==null?avgOEE.toFixed(1)+'%':'—';
+
+  const crEl=document.getElementById('psb-codered');
+  if(crEl){
+    crEl.textContent=codeRed;
+    crEl.style.color=codeRed>1?'var(--red)':codeRed===1?'var(--amber-l)':'inherit';
+  }
+
+  const plantLines=(window.ACTIVE_PLANT&&window.ACTIVE_PLANT.lines)||[];
+  const lnEl=document.getElementById('psb-lines');
+  if(lnEl) lnEl.textContent=activeLines.length?`${activeLines.length} / ${plantLines.length}`:'—';
+}
+
+// ══ ROLE-BASED INTERACTION ════════════════════════════════════════════════
+function applyRoleAccess(){
+  const isAdmin=NovusCore.isAdmin();
+  document.querySelectorAll('[contenteditable]').forEach(el=>{
+    if(isAdmin){
+      el.contentEditable='true';
+      el.classList.add('admin-edit');
+      el.classList.remove('viewer-lock');
+    } else {
+      el.contentEditable='false';
+      el.classList.add('viewer-lock');
+      el.classList.remove('admin-edit');
+    }
+  });
+  const btnL=document.getElementById('btn-layout-studio'); if(btnL) btnL.style.display=isAdmin?'':'none';
+  // Re-render so admin-only "×" remove buttons on custom widgets appear/
+  // disappear immediately on a role change, without a full data refetch.
+  if(typeof renderCustomWidgets==='function') renderCustomWidgets();
+}
+
+function markManualOverrides(){
+  MANUAL_IDS.forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    el.classList.toggle('has-override',localStorage.getItem(manualKey(id))!==null);
+  });
+}
+
+// ── Data chart helpers (update font references) ──
+const CD={font:{family:"Inter,system-ui,sans-serif",size:10},mono:{family:"'JetBrains Mono',monospace",size:10},grid:'rgba(0,0,0,.04)',tick:'#94a3b8'};
+function mkChart(id,type,labels,datasets,extra={}){const el=document.getElementById(id);if(!el)return;const ex=Chart.getChart(el);if(ex)ex.destroy();new Chart(el.getContext('2d'),{type,data:{labels,datasets:datasets.map(ds=>({tension:.35,pointRadius:0,borderWidth:2,...ds}))},options:{indexAxis:extra.indexAxis||'x',responsive:true,maintainAspectRatio:false,animation:{duration:300},plugins:{title:{display:!!extra.title,text:extra.title||'',font:{family:'Inter,system-ui,sans-serif',size:11,weight:'700'},color:CD.tick,padding:{bottom:6}},legend:{display:datasets.length>1,position:extra.legendPos||'bottom',labels:{font:CD.font,color:CD.tick,boxWidth:10,padding:8}},tooltip:{backgroundColor:'rgba(15,23,42,.92)',padding:10,cornerRadius:6,titleFont:{family:'Inter,system-ui,sans-serif',size:11,weight:'600'},bodyFont:{family:"'JetBrains Mono',monospace",size:11}}},scales:{x:{grid:{color:CD.grid},ticks:{font:CD.mono,color:CD.tick,maxTicksLimit:8,maxRotation:40}},y:{beginAtZero:true,grid:{color:CD.grid},ticks:{font:CD.mono,color:CD.tick}},...(extra.y1?{y1:{position:'right',grid:{drawOnChartArea:false}}}:{})}}});}
+function mkDoughnut(id,value,label){const el=document.getElementById(id);if(!el)return;let n=parseFloat(value)||0;if(n>0&&n<=2)n*=100;const color=n>=90?'#059669':n>=70?'#d97706':'#ef4444';const short=label.includes('Overall')?'Overall':label.includes('Walmart')?'Walmart':label;const ex=Chart.getChart(el);if(ex)ex.destroy();new Chart(el.getContext('2d'),{type:'doughnut',data:{datasets:[{data:[n,100-n],backgroundColor:[color,'#e2e8f0'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'76%',animation:{duration:300},plugins:{legend:{display:false}}},plugins:[{id:'center',beforeDraw:chart=>{const{width,height,ctx}=chart;ctx.restore();ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=`600 10px Inter,system-ui,sans-serif`;ctx.fillStyle=CD.tick;ctx.fillText(short,width/2,height/2-12);ctx.font=`bold 18px Inter,system-ui,sans-serif`;ctx.fillStyle=color;ctx.fillText(`${n.toFixed(1)}%`,width/2,height/2+8);ctx.save();}}]});}
+
+// ── Sheet accessor (XLSX workbook) ──
+// Reads from JSON fetched from GitHub — populated by Power Automate every 15 min
+let _dashData = {};
+function sheet(name){
+  return (_dashData[name] || []).map(row => {
+    // Strip Power Automate metadata keys (@odata.etag, __PowerAppsId__, etc.)
+    const clean = {};
+    Object.keys(row).forEach(k => {
+      if(!k.startsWith('@') && !k.startsWith('__') && k !== 'ItemInternalId')
+        clean[k] = row[k];
+    });
+    return clean;
+  });
+}
+
+function applyBuffer(buf,sourceName){
+  // Only parse the 8 sheets the dashboard actually reads — skips any
+  // extra sheets in the workbook, reducing parse time significantly.
+  const NEEDED_SHEETS = [
+    'HR | Training','QA','Production','Finance',
+    'SAP','Warehouse','Inventory Control','Maintenance'
+  ];
+  workbook=XLSX.read(buf,{type:'array',cellDates:false,raw:true,sheets:NEEDED_SHEETS});
+  renderDashboard();
+  updatePlantStatusBar();
+  updateFreshnessBadge();
+  applyRoleAccess();
+  markManualOverrides();
+  if(window.Sortable)initDraggable();
+  initResizable();
+  const st=document.getElementById('data-status');if(st){st.className='ok';st.textContent='✓ '+(sourceName||'workbook');}
+}
+
+function setSpBar(msg,state='',spin=false){const bar=document.getElementById('sp-bar'),sp=document.getElementById('sp-spinner'),msgEl=document.getElementById('sp-msg');bar.className='sp-bar visible'+(state?' '+state:'');msgEl.textContent=msg;sp.classList.toggle('on',spin);}
+
+// Merges l2l-data.json's Production/Maintenance rows into _dashData,
+// matching on Date+Line (Production) or Date (Maintenance) — same
+// upsert logic as the Python sync script: update the matching row's
+// L2L fields in place if one exists, otherwise add a new row.
+function upsertRow(rows, matchFields, newValues) {
+  const match = rows.find(row =>
+    Object.keys(matchFields).every(k => String(row[k] ?? '').trim() === String(matchFields[k]).trim())
+  );
+  if (match) {
+    Object.assign(match, newValues);
+  } else {
+    rows.push({ ...matchFields, ...newValues });
+  }
+}
+
+function mergeL2LData(l2lJson) {
+  const prodRows = _dashData['Production'] = _dashData['Production'] || [];
+  (l2lJson['Production'] || []).forEach(r => {
+    upsertRow(prodRows, { Date: r.Date, Line: r.Line }, { OEE: r.OEE, Downtime: r.Downtime });
+  });
+
+  const maintRows = _dashData['Maintenance'] = _dashData['Maintenance'] || [];
+  (l2lJson['Maintenance'] || []).forEach(r => {
+    upsertRow(maintRows, { Date: r.Date }, { 'Code Red': r['Code Red'], 'Code Yellow': r['Code Yellow'] });
+  });
+}
+
+async function fetchFromSharePoint(){
+  const btn = document.getElementById('btn-sp');
+  if(btn) btn.disabled = true;
+  setSpBar('Loading dashboard data…', '', true);
+  try {
+    // The `?v=` cache-buster is load-bearing, not decorative: GitHub Pages
+    // sits behind a CDN that has been observed serving this exact URL's
+    // response days stale even with `cache: 'no-cache'` set (that option
+    // only controls how *this browser* uses its own cache -- it can't force
+    // an upstream CDN edge to revalidate). A timestamp query param makes
+    // every load a distinct URL, so there's nothing cached to serve.
+    if(!window.ACTIVE_PLANT) await resolveActivePlant();
+    const plant = window.ACTIVE_PLANT;
+    // Power Automate is an optional source. With it switched off in
+    // plant-config.js the dashboard simply starts empty and is filled by
+    // Data Entry (and L2L, if enabled).
+    let json = {};
+    if(plant.dataUrl){
+      const res = await fetch(
+        plant.dataUrl + '?v=' + Date.now(),
+        { cache: 'no-cache' }
+      );
+      if(!res.ok) throw new Error(plant.shortLabel + ': dashboard data not found (' + res.status + '). Run your Power Automate flow first.');
+      json = await res.json();
+    }
+    _dashData = {};
+    Object.keys(json).forEach(k => {
+      if(k !== 'synced_at') _dashData[k] = json[k];
+    });
+
+    // Permanently strip Power Automate's own OEE/Downtime/Code Red/Code
+    // Yellow -- for EVERY date, no exceptions -- BEFORE merging in L2L's
+    // numbers below. This guarantees those 4 fields can only ever show real
+    // L2L data (or "—" if L2L hasn't synced that particular day) and never
+    // a Power Automate value, with no dependency on anyone remembering to
+    // backfill a missed day. (Older trend charts will show gaps for any
+    // date L2L was never asked to sync -- that's the tradeoff for never
+    // letting Power Automate's OEE/Downtime show, ever.)
+    // (Only when L2L is switched on in plant-config.js. A plant without L2L
+    // keeps these four fields from Power Automate / Data Entry.)
+    if(window.PLANT_CONFIG.sources.l2l.enabled){
+      (_dashData['Production'] || []).forEach(row => {
+        delete row.OEE; delete row.Downtime;
+      });
+      (_dashData['Maintenance'] || []).forEach(row => {
+        delete row['Code Red']; delete row['Code Yellow'];
+      });
+    }
+
+    // Layer in L2L's own numbers (OEE/Downtime/Code Red/Code Yellow) from
+    // a SEPARATE file that only the L2L sync script writes. This runs
+    // after Power Automate's data loads, so L2L's numbers always win for
+    // just those fields, no matter what Power Automate last wrote there.
+    try {
+      if (plant.l2lDataUrl) {
+        const l2lRes = await fetch(
+          plant.l2lDataUrl + '?v=' + Date.now(),
+          { cache: 'no-cache' }
+        );
+        if (l2lRes.ok) {
+          const l2lJson = await l2lRes.json();
+          mergeL2LData(l2lJson);
+        }
+      }
+    } catch (e) {
+      console.warn('l2l-data.json not loaded (non-fatal):', e);
+    }
+
+    // Admin-added custom metric cards / charts for this plant (see
+    // "Manage Custom Widgets" in the ··· menu). Loaded here so
+    // renderDashboard() below can draw them from fresh data right away.
+    await loadCustomPanels();
+    renderCustomPanels();
+    await loadLayout();
+    await loadProdConfig();
+    applyLayout();
+    await loadDataEntrySheet();
+    await loadCustomWidgets();
+    await loadHiddenItems();
+    await loadMetricSources();
+    await loadHighlightCards();
+    if(window.EDIT) await EDIT.loadToken();
+
+    workbook = { _json: true };
+    renderDashboard();
+    updatePlantStatusBar();
+    updateFreshnessBadge();
+    applyRoleAccess();
+    markManualOverrides();
+    if(window.Sortable) initDraggable();
+    initResizable();
+    if(window.EDIT) EDIT.afterLoad();
+    const syncedAt = json.synced_at
+      ? new Date(json.synced_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+      : 'unknown';
+    document.getElementById('sp-time').textContent = 'Loaded ' + new Date().toLocaleTimeString();
+    setSpBar('✓ Dashboard loaded · Data synced by Power Automate: ' + syncedAt, 'success', false);
+    NovusCore.Toast.success('Dashboard updated ✓');
+    hlLoad(); // refresh highlights too
+  } catch(err) {
+    console.error(err);
+    setSpBar('⚠ ' + err.message, 'error', false);
+    NovusCore.Toast.error('Failed to load dashboard data.');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function handleUpload(evt){
+  const file=evt.target.files[0];if(!file)return;
+  try{
+    const buf=await NovusCore.WorkbookCache.save(file);
+    applyBuffer(buf,file.name);
+    setSpBar(`✓ Loaded from upload: ${file.name}`,'success',false);
+    NovusCore.Toast.success('Workbook loaded ✓');
+  }catch(err){NovusCore.Toast.error('Failed to read file.');}
+}
+
+let _sortable=null;
+function initDraggable(){ if(_sortable) return; _sortable=new Sortable(document.getElementById('main-sortable'),{animation:200,handle:'.ed-grip',ghostClass:'sortable-ghost',disabled:!(window.EDIT&&EDIT.on),forceFallback:false,onEnd:()=>layoutChanged()}); }
+function setDragEnabled(on){ if(!_sortable && window.Sortable) initDraggable(); if(_sortable) _sortable.option('disabled', !on); }
+function initResizable(){
+  document.querySelectorAll('#main-sortable .panel').forEach(panel=>{
+    const r = panel.querySelector('.resizer'); if(!r || r.dataset.bound) return; r.dataset.bound = '1';
+    r.addEventListener('pointerdown', e=>{
+      if(!(window.EDIT && EDIT.on)) return;
+      e.preventDefault(); r.setPointerCapture && r.setPointerCapture(e.pointerId);
+      const sx = e.clientX, sw = panel.getBoundingClientRect().width, colW = document.getElementById('main-sortable').getBoundingClientRect().width/12;
+      const colsAt = ev=>Math.max(2, Math.min(12, Math.round((sw + ev.clientX - sx)/colW)));
+      const mv = ev=>{ panel.style.gridColumn = 'span ' + colsAt(ev); };
+      const up = ev=>{ r.removeEventListener('pointermove', mv); r.removeEventListener('pointerup', up); r.removeEventListener('pointercancel', up); panel.style.gridColumn = 'span ' + colsAt(ev); window.dispatchEvent(new Event('resize')); layoutChanged(); if(window.EDIT) EDIT.refresh(); };
+      r.addEventListener('pointermove', mv); r.addEventListener('pointerup', up); r.addEventListener('pointercancel', up);
+    });
+  });
+}
+
+window.__libsCallback=async()=>{
+  // Resolve which plant is active before anything else touches data --
+  // fetchFromSharePoint(), the manual-override keys, and the session
+  // cache below all key off window.ACTIVE_PLANT.
+  const plant=await resolveActivePlant();
+  applyPlantBranding(plant);
+
+  NovusCore.requireAuth();
+  applyRoleAccess();
+  markManualOverrides();
+  updateClock();setInterval(updateClock,1000);
+
+  // Restore session cache (instant back-navigation) -- namespaced per
+  // plant so switching plants never restores another plant's cache.
+  const cacheKeyWb=`novus_${plant.id}_sp_wb`,cacheKeyTime=`novus_${plant.id}_sp_time`;
+  try{
+    const cached=sessionStorage.getItem(cacheKeyWb);
+    if(cached){
+      // Fast ArrayBuffer restore from base64 cache
+      const raw=atob(cached);
+      const bytes=new Uint8Array(raw.length);
+      for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
+      applyBuffer(bytes.buffer,'SharePoint (cached)');
+      const t=sessionStorage.getItem(cacheKeyTime);
+      setSpBar(`✓ Cached data — fetched ${t||'earlier'}. Click Refresh for latest.`,'success',false);
+      return;
+    }
+  }catch(_){
+    // Corrupt cache — clear it and fall through to prompt
+    sessionStorage.removeItem(cacheKeyWb);
+    sessionStorage.removeItem(cacheKeyTime);
+  }
+
+  // Auto-load from Power Automate JSON — no auth needed
+  await fetchFromSharePoint();
+  document.getElementById('plant-status-bar').dataset.status='loading';
+};
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{if(window.__libs.chartjs)window.__libsCallback();});
+
+// ── SharePoint data path ──
+  // ══ LEVEL 1 DDS HIGHLIGHTS ═══════════════════════════════════════════════
+
+const HL_DEPTS = [
+  'Quality','Production','Sanitation','Warehouse', 'Maintenance'
+];
+// The cards shown in the Level 1 DDS Highlights panel. Standard five by default;
+// the Layout Studio can rename, re-icon, reorder, add and remove them per plant.
+const HL_TROPHIES = { Quality:'🥇', Production:'⚙️', Sanitation:'🧼', Warehouse:'🏭' };
+const HL_DEFAULT = HL_DEPTS.map(k=>({ key:k, label:k, icon:HL_TROPHIES[k]||'⭐' }));
+let HL_CARDS = JSON.parse(JSON.stringify(HL_DEFAULT)), HL_SAVED = JSON.parse(JSON.stringify(HL_DEFAULT));
+const hlSlug = k => String(k).replace(/[^A-Za-z0-9_-]/g, '-');
+async function loadHighlightCards(){
+  let list = null;
+  if(window.NovusDB && NovusDB.highlightCards && window.ACTIVE_PLANT){
+    try{
+      const { data, error } = await NovusDB.highlightCards.getAll(window.ACTIVE_PLANT.id);
+      if(!error && data && data.length) list = data.map(r=>({ key:r.card_key, label:r.label, icon:r.icon||'' }));
+    }catch(e){ console.warn('highlight cards load failed (non-fatal):', e); }
+  }
+  HL_SAVED = list || JSON.parse(JSON.stringify(HL_DEFAULT));
+  HL_CARDS = (LS.draft && lsDirty()) ? JSON.parse(JSON.stringify(LS.draft.hl)) : JSON.parse(JSON.stringify(HL_SAVED));
+  hlBuildGrid();
+}
+
+const _hlRevealed = new Set(); // persists across grid rebuilds
+let _hlData   = {};
+let _hlTimers = {};
+
+function hlReveal(dept) {
+  const card = [...document.querySelectorAll('.hl-card')].find(c=>c.dataset.dept===dept);
+  if (!card || _hlRevealed.has(dept)) return;
+  _hlRevealed.add(dept);
+  card.classList.add('revealed');
+  card.style.cursor = 'default';
+}
+
+const hlEsc = v => String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function hlBuildGrid() {
+  const grid = document.getElementById('highlights-grid');
+  if (!grid) return;
+  grid.innerHTML = HL_CARDS.map(card => {
+    const dept = card.key;
+    const d   = _hlData[dept] || {};
+    const key = hlSlug(dept);
+    const ts  = d.updated_at
+      ? new Date(d.updated_at).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
+      : '';
+    const by  = d.updated_by ? ` · ${d.updated_by}` : '';
+    const isRevealed = _hlRevealed.has(dept);
+    return `
+      <div class="hl-card${isRevealed ? ' revealed' : ''}"
+           data-dept="${hlEsc(dept)}"
+           onclick="hlReveal('${hlEsc(dept)}')">
+        <div class="hl-spotlight-ring"></div>
+        <div class="hl-trophy">${hlEsc(card.icon || '⭐')}</div>
+        <div class="hl-dept-label">${hlEsc(card.label)}</div>
+        <input class="hl-name"
+               id="hl-name-${key}"
+               value="${(d.employee||'').replace(/"/g,'&quot;')}"
+               placeholder="No highlight yet…"
+               oninput="hlScheduleSave('${hlEsc(dept)}')"
+               onclick="event.stopPropagation()"
+               ${NovusCore.canEditData() ? '' : 'readonly'}>
+        <div class="hl-reveal-hint">👁 Tap to reveal</div>
+        <div class="hl-meta" id="hl-meta-${key}">${ts ? `Updated ${ts}${by}` : '—'}</div>
+      </div>`;
+  }).join('');
+}
+
+function hlScheduleSave(dept) {
+  const key = hlSlug(dept);
+  const metaEl = document.getElementById(`hl-meta-${key}`);
+  if (metaEl) { metaEl.className = 'hl-meta hl-saving'; metaEl.textContent = 'Saving…'; }
+  clearTimeout(_hlTimers[dept]);
+  _hlTimers[dept] = setTimeout(() => hlSave(dept), 800);
+}
+
+async function hlSave(dept) {
+  const key       = hlSlug(dept);
+  const nameEl    = document.getElementById(`hl-name-${key}`);
+  const metaEl    = document.getElementById(`hl-meta-${key}`);
+  const employee  = nameEl?.value?.trim() || '';
+  const updatedBy = NovusCore.getUser()?.username || '';
+  try {
+    const { error } = await NovusDB.ddsHighlights.upsert(dept, employee, '', updatedBy, PLANT_CONFIG.plant.id);
+    if (error) throw error;
+    _hlData[dept] = { ..._hlData[dept], employee, updated_by: updatedBy, updated_at: new Date().toISOString() };
+    if (metaEl) {
+      metaEl.className = 'hl-meta hl-saved';
+      metaEl.textContent = '✓ Saved';
+      setTimeout(() => {
+        if (metaEl) { metaEl.className = 'hl-meta'; metaEl.textContent = `Updated just now · ${updatedBy}`; }
+      }, 2000);
+    }
+  } catch (e) {
+    if (metaEl) { metaEl.className = 'hl-meta'; metaEl.textContent = '⚠ Save failed'; }
+    console.error('[hlSave]', e);
+  }
+}
+
+async function hlLoad() {
+  try {
+    const { data, error } = await NovusDB.ddsHighlights.getAll(PLANT_CONFIG.plant.id);
+    if (error) throw error;
+    _hlData = {};
+    (data || []).forEach(row => { _hlData[row.dept] = row; });
+    hlBuildGrid();
+  } catch (e) {
+    console.error('[hlLoad]', e);
+    hlBuildGrid();
+  }
+}
+
+NovusDB.ddsHighlights.subscribe(payload => {
+  const row = payload.new;
+  if (!row) return;
+  _hlData[row.dept] = row;
+  const key    = hlSlug(row.dept);
+  const nameEl = document.getElementById(`hl-name-${key}`);
+  const metaEl = document.getElementById(`hl-meta-${key}`);
+  if (nameEl && document.activeElement !== nameEl) nameEl.value = row.employee || '';
+  if (metaEl) {
+    const ts = new Date(row.updated_at).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+    metaEl.textContent = `Updated ${ts} · ${row.updated_by || ''}`;
+  }
+});
+
+hlLoad();
+
+// ── Admin-managed Custom Widgets ──────────────────────────────────────────
+// Lets anyone with the admin role add a metric card or mini-chart, built
+// from any field already present in this plant's dashboard-data.json, to
+// any existing panel -- see "Manage Custom Widgets" in the ··· menu.
+// Stored in Supabase (table dashboard_custom_widgets, scoped by plant_id)
+// so the set is global: every viewer of a plant sees the same widgets,
+// same as announcements/rules/needs-action elsewhere in this app. Every
+// call below guards for window.NovusDB.customWidgets being absent, so
+// this feature degrades gracefully (list stays empty, add shows a plain
+// message) until supabase-config.js is updated with that table's wrapper.
+const CW_PANELS = [
+  {id:'panel-safety',    label:'🦺 Safety'},
+  {id:'panel-quality',   label:'✅ Quality'},
+  {id:'panel-production',label:'⚙️ Production Summary'},
+  {id:'panel-sanitation',label:'🧼 Sanitation'},
+  {id:'panel-costs',     label:'💰 Costs'},
+  {id:'panel-hr',        label:'👥 HR | Training'},
+  {id:'panel-sap',       label:'📊 SAP Metrics'},
+  {id:'panel-warehouse', label:'🏭 Warehouse'},
+  {id:'panel-inventory', label:'📦 Inventory Control'},
+  {id:'panel-highlights',label:'🏆 Level 1 DDS Highlights'},
+];
+const CW_SHEETS = ['HR | Training','QA','Production','Finance','SAP','Warehouse','Inventory Control','Maintenance'];
+const CW_META_FIELDS = new Set(['date','line','city']); // structural columns, not metrics -- left out of the field picker
+let CUSTOM_WIDGETS = [];
+
+let CUSTOM_PANELS = [];     // sections added through "Manage Dashboard"
+function cpId(p){ return 'cpanel-' + p.id; }
+function allPanels(){ return CW_PANELS.concat(CUSTOM_PANELS.map(p=>({ id:cpId(p), label:(p.icon?p.icon+' ':'')+p.title, custom:true, cp:p }))); }
+function getAvailablePanels(){ return allPanels(); }
+function dashSheetNames(){ return [...new Set([...CW_SHEETS, ...Object.keys(ENTRY_FIELDS)])]; }
+
+function getAvailableFields(sheetName){
+  const rows = sheet(sheetName) || [];
+  const fields = new Set();
+  rows.forEach(row => Object.keys(row).forEach(k => {
+    if(!CW_META_FIELDS.has(k.trim().toLowerCase())) fields.add(k);
+  }));
+  return [...fields].sort((a,b)=>a.localeCompare(b));
+}
+
+// ── Data Entry overlay ─────────────────────────────────────────────────────
+// Rows saved on data-entry.html (one per department + date + line/city) are
+// merged onto the matching dashboard sheet ('QA', 'Production', ...), so what
+// people type in the entry grid shows up in the normal panels and is available
+// to Custom Widgets as extra fields. A row for a date/line/city that already
+// exists in the sheet is updated with the entered values; otherwise a new row
+// is added. Excel formula columns (Yield, Attainment, Completion % ...) are not
+// computed for entered rows. Set ENTRY_OVERLAY_ON=false to switch this off.
+// Non-fatal on any failure: the rest of the dashboard is unaffected.
+const ENTRY_OVERLAY_ON = true;
+const ENTRY_FIELDS = {};   // sheet name -> Set of entry-defined field labels
+const _entryUndo = [];     // closures that undo the last overlay (re-applied on refresh)
+const ENTRY_PCT = {};      // sheet name -> Set of entry-defined fields shown as percents
+function entryDimKey(r){
+  const d = valByKey(r,'Line') ?? valByKey(r,'City') ?? valByKey(r,'PSA Bin') ?? valByKey(r,'Item') ?? valByKey(r,'Row');
+  return d==null ? '' : String(d).trim().toLowerCase();
+}
+async function loadDataEntrySheet(){
+  while(_entryUndo.length) { try{ _entryUndo.pop()(); }catch(_){} }
+  Object.keys(ENTRY_FIELDS).forEach(k=>delete ENTRY_FIELDS[k]);
+  Object.keys(ENTRY_PCT).forEach(k=>delete ENTRY_PCT[k]);
+  if(!ENTRY_OVERLAY_ON || !window.NovusDB || !NovusDB.metrics || !NovusDB.dataEntries || !window.ACTIVE_PLANT) return;
+  try{
+    const pid = window.ACTIVE_PLANT.id;
+    const [defs, ents] = await Promise.all([NovusDB.metrics.getAll(pid), NovusDB.dataEntries.getForDashboard(pid)]);
+    if(defs.error || ents.error) throw (defs.error || ents.error);
+    // Only active columns are shown; removed ones keep their stored history.
+    const labelByKey = {};
+    (defs.data||[]).forEach(d=>{ if(d.active){ labelByKey[d.form_type+'|'+d.key] = d.label;
+      if(d.type==='percent' || (d.type==='calc' && (d.options||[])[1]==='percent')) (ENTRY_PCT[d.form_type] = ENTRY_PCT[d.form_type] || new Set()).add(d.label); } });
+    const byDept = {};
+    (ents.data||[]).forEach(e=>{ (byDept[e.form_type] = byDept[e.form_type] || []).push(e); });
+    Object.keys(byDept).forEach(dept=>{
+      const rows = _dashData[dept] || (_dashData[dept] = []);
+      const index = new Map();
+      rows.forEach(r=>{ const d=parseDate(r.Date); if(d) index.set(toDS(d)+'|'+entryDimKey(r), r); });
+      byDept[dept].forEach(e=>{
+        const vals = {};
+        Object.keys(e.data||{}).forEach(k=>{
+          const label = labelByKey[dept+'|'+k];
+          const v = e.data[k];
+          if(label===undefined || v===''||v==null) return;
+          if(prodIsL2L(dept,label)) return;   // L2L owns OEE / Downtime / Code Red / Code Yellow; Data Entry never overwrites them
+          vals[label] = v;
+        });
+        const labels = Object.keys(vals);
+        if(!labels.length) return;
+        labels.forEach(l=>{ (ENTRY_FIELDS[dept] = ENTRY_FIELDS[dept] || new Set()).add(l); });
+        const key = e.entry_date + '|' + String(e.row_key||'').trim().toLowerCase();
+        let row = index.get(key);
+        if(row){
+          // Update an existing row; remember what was there so a refresh can undo it.
+          const before = {};
+          labels.forEach(l=>{ before[l] = Object.prototype.hasOwnProperty.call(row,l) ? row[l] : undefined; row[l] = vals[l]; });
+          _entryUndo.push(()=>labels.forEach(l=>{ if(before[l]===undefined) delete row[l]; else row[l]=before[l]; }));
+        } else {
+          row = Object.assign({ Date: e.entry_date }, vals);
+          if(e.data && e.data.line) row.Line = e.data.line;
+          if(e.data && e.data.city) row.City = e.data.city;
+          if(e.data && e.data.psa_bin) row['PSA Bin'] = e.data.psa_bin;
+          if(e.data && e.data.item) row.Item = e.data.item;
+          if(e.row_key && !row.Line && !row.City && !row['PSA Bin'] && !row.Item) row.Row = e.row_key;
+          rows.push(row); index.set(key,row);
+          _entryUndo.push(()=>{ const i=rows.indexOf(row); if(i>-1) rows.splice(i,1); });
+        }
+      });
+    });
+  }catch(e){ console.warn('Data Entry overlay failed (non-fatal):', e); }
+}
+
+async function loadCustomWidgets(){
+  CUSTOM_WIDGETS = [];
+  if(!window.NovusDB || !window.NovusDB.customWidgets || !window.ACTIVE_PLANT) return;
+  try{
+    const { data, error } = await NovusDB.customWidgets.getAll(window.ACTIVE_PLANT.id);
+    if(!error && data) CUSTOM_WIDGETS = data;
+  }catch(e){ console.warn('customWidgets load failed (non-fatal):', e); }
+  SAVED_CW = lsClone(CUSTOM_WIDGETS);
+  if(LS.draft && lsDirty()) CUSTOM_WIDGETS = lsClone(LS.draft.cw);
+}
+
+function ensureCustomZone(panelId){
+  const panel = document.getElementById(panelId);
+  if(!panel) return null;
+  let zone = panel.querySelector('.custom-widget-zone');
+  if(!zone){
+    zone = document.createElement('div');
+    zone.className = 'custom-widget-zone';
+    const body = panel.querySelector('.panel-body') || panel;
+    body.appendChild(zone);
+  }
+  return zone;
+}
+
+// Widget display types and their human labels, shown in the modal and in
+// the "Current Widgets" list.
+const CW_TYPE_LABELS = {
+  metric:   'Metric Card',
+  line:     'Line Chart',
+  area:     'Area Chart',
+  bar:      'Bar Chart',
+  hbar:     'Horizontal Bar',
+  doughnut: 'Doughnut / Gauge',
+  trend:    'Trend Card',
+  text:     'Text Note',
+};
+// Date-range choices offered in the modal, in days; 0 means "all available
+// data" (no cutoff).
+const CW_RANGE_LABELS = { 7:'7 Days', 14:'14 Days', 30:'30 Days', 60:'60 Days', 90:'90 Days', 180:'180 Days', 365:'365 Days', 0:'All Available Data' };
+
+// Rows for widget.sheet, narrowed to widget.range_days back from today
+// (0/undefined range_days means "all rows" -- returned unfiltered).
+function cwFilteredRows(widget){
+  let rows = sheet(widget.sheet) || [];
+  // Entry-defined fields can be blank on many rows; keep only rows that have a
+  // value so blanks never plot or average as 0. (Built-in fields unchanged.)
+  if(ENTRY_FIELDS[widget.sheet] && ENTRY_FIELDS[widget.sheet].has(widget.field)) rows = rows.filter(r=>valByKey(r,widget.field)!=null);
+  const days = widget.range_days;
+  if(!days) return rows;
+  // "Last N Days" is an N-day window that includes today, so the cutoff is
+  // N-1 days back (days=7 -> today + the 6 days before it = 7 days total).
+  const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate()-(days-1));
+  return rows.filter(r=>{ const d=parseDate(r.Date); return d && d>=cutoff; });
+}
+
+// Pulls every value for widget.sheet/widget.field using the same
+// valByKey/parseDate helpers the built-in panels use, so a custom metric
+// card reads data exactly the way the rest of the dashboard does. Sum/avg
+// respect the widget's date range; "Latest Date" deliberately does not --
+// gating "latest" on a narrow window is the exact bug pattern that once
+// froze "Yesterday's Performance" on a stale date (see getLatestDate's
+// comment above), so a metric card always shows the sheet's true latest
+// value regardless of the range picker.
+function cwCompute(widget){
+  if(widget.agg==='sum'||widget.agg==='avg'){
+    const rows = cwFilteredRows(widget);
+    const nums = rows.map(r=>Number(valByKey(r,widget.field))).filter(n=>!isNaN(n));
+    if(!nums.length) return null;
+    return widget.agg==='sum' ? nums.reduce((a,b)=>a+b,0) : +(nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(2);
+  }
+  let rows = sheet(widget.sheet) || [];
+  // "Latest" of an entry-defined field = latest row that actually has a value.
+  if(ENTRY_FIELDS[widget.sheet] && ENTRY_FIELDS[widget.sheet].has(widget.field)) rows = rows.filter(r=>valByKey(r,widget.field)!=null);
+  const ds = getLatestDate(rows)?.str;
+  if(ds==null) return null;
+  const dayRows = rows.filter(r=>toDS(parseDate(r.Date))===ds);
+  return dayRows.length ? valByKey(dayRows[dayRows.length-1], widget.field) : null;
+}
+
+// The one "current" number a widget's target is judged against -- for a
+// metric card this is whatever it already displays (respecting its own
+// agg); for every chart/gauge type it's always the sheet's true latest
+// value, same as the doughnut widget's own reading above (never gated by
+// the range picker, for the same stale-date reason cwCompute explains).
+function cwCurrentValue(widget){
+  return widget.widget_type==='metric' ? cwCompute(widget) : cwCompute({...widget, agg:'latest'});
+}
+
+// Builds the small "Target: ≥95 ✓ On Target" pill shown under a widget
+// when it has a target set, reusing the same .status-pill/.pill-yes/
+// .pill-no classes the built-in Start Up/CIL cards already use elsewhere
+// on this dashboard, so a custom widget's target reads as part of the
+// same visual system instead of a bolted-on extra.
+function cwTargetPillHtml(widget){
+  if(widget.target==null || widget.target==='') return '';
+  const cur = cwCurrentValue(widget);
+  const curNum = Number(cur);
+  const dirLte = widget.target_dir==='lte';
+  const met = (cur!=null && !isNaN(curNum)) ? (dirLte ? curNum<=widget.target : curNum>=widget.target) : null;
+  const dirSym = dirLte ? '≤' : '≥';
+  const cls = met==null ? 'pill-no' : (met ? 'pill-yes' : 'pill-no');
+  const status = met==null ? 'No Data' : (met ? '✓ On Target' : '⚠ Off Target');
+  return `<div class="status-pill ${cls}"><span class="pill-label">TARGET ${dirSym}${widget.target}</span><span>${status}</span></div>`;
+}
+
+function cwEsc(v){ return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function cwFmt(n){ return (n==null||n===''||isNaN(n)) ? '—' : Number(n).toLocaleString(undefined,{maximumFractionDigits:2}); }
+
+// Trend card: latest reading, change vs the previous reading and vs the start of
+// the date range, plus a small sparkline. Whether "up" is good follows the
+// widget's target direction (at-or-below target => down is good).
+// One value per date for a widget's field. Sheets with several rows per date
+// (a row per line / city) are combined using the widget's "per-day value"
+// choice: last entry, sum, or average. Blank cells are skipped, not plotted as 0.
+function cwSeries(w){
+  const byDay = new Map();
+  cwFilteredRows(w).forEach(r=>{
+    const d = parseDate(r.Date); if(!d) return;
+    const raw = valByKey(r, w.field); const n = Number(raw);
+    if(raw==null || raw==='' || isNaN(n)) return;
+    const k = toDS(d); if(!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(n);
+  });
+  const agg = w.agg || 'latest';
+  return [...byDay.keys()].sort().map(k=>{
+    const a = byDay.get(k);
+    return agg==='sum' ? a.reduce((x,y)=>x+y,0) : agg==='avg' ? a.reduce((x,y)=>x+y,0)/a.length : a[a.length-1];
+  });
+}
+function cwTrendHtml(w){
+  const v = cwSeries(w);
+  if(!v.length) return `<div class="metric-value">—</div><div class="cw-trend-sub">${cwEsc(w.sheet)} · ${cwEsc(w.field)} · no data in range</div>`;
+  const last = v[v.length-1], prev = v.length>1 ? v[v.length-2] : null, first = v[0];
+  const downGood = w.target_dir==='lte';
+  const cls = d => d==null || d===0 ? 'flat' : ((d>0) !== downGood ? 'good' : 'bad');
+  const arrow = d => d==null || d===0 ? '▬' : (d>0 ? '▲' : '▼');
+  const sign = d => d>0 ? '+' : '';
+  const pct = (d,base) => base ? ` (${sign(d)}${(d/Math.abs(base)*100).toFixed(1)}%)` : '';
+  const dPrev = prev==null ? null : last-prev, dFirst = v.length>2 ? last-first : null;
+  let spark = '';
+  if(v.length>1){
+    const W=110,H=28,P=3, mn=Math.min(...v), mx=Math.max(...v), rng=(mx-mn)||1;
+    const pts = v.map((y,i)=>[P+i*(W-2*P)/(v.length-1), H-P-(y-mn)/rng*(H-2*P)]);
+    const col = cls(dFirst!=null?dFirst:dPrev)==='bad' ? '#ef4444' : (cls(dFirst!=null?dFirst:dPrev)==='good' ? '#059669' : '#94a3b8');
+    spark = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true"><polyline fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" points="${pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}"/><circle cx="${pts[pts.length-1][0].toFixed(1)}" cy="${pts[pts.length-1][1].toFixed(1)}" r="2.4" fill="${col}"/></svg>`;
+  }
+  return `<div class="metric-value">${cwFmt(last)}</div>
+    <div class="cw-trend-row">
+      <div>
+        <div class="cw-trend-delta ${cls(dPrev)}">${arrow(dPrev)} ${dPrev==null?'—':sign(dPrev)+cwFmt(dPrev)+pct(dPrev,prev)} <span style="font-weight:500;color:var(--ink4)">vs prev</span></div>
+        ${dFirst!=null?`<div class="cw-trend-delta ${cls(dFirst)}" style="font-weight:600;">${arrow(dFirst)} ${sign(dFirst)}${cwFmt(dFirst)}${pct(dFirst,first)} <span style="font-weight:500;color:var(--ink4)">vs range start</span></div>`:''}
+      </div>${spark}
+    </div>
+    <div class="cw-trend-sub">${cwEsc(w.sheet)} · ${cwEsc(w.field)} · ${v.length} reading${v.length>1?'s':''}</div>`;
+}
+
+// ── New sections (panels) and the shared layout ───────────────────────────
+// Anyone with admin rights can add a whole new section to the DDS; it looks and
+// behaves like the built-in ones and can hold any widget. The order and width of
+// every section is saved for the plant when an admin drags or resizes, so all
+// users see the same DDS. Non-admins can still rearrange for themselves, but
+// that is not saved.
+let LAYOUT_SAVED = null, DEFAULT_ORDER = null, DEFAULT_SPANS = null, _layoutTimer = null;
+async function loadCustomPanels(){
+  CUSTOM_PANELS = [];
+  if(!window.NovusDB || !NovusDB.customPanels || !window.ACTIVE_PLANT) return;
+  try{
+    const { data, error } = await NovusDB.customPanels.getAll(window.ACTIVE_PLANT.id);
+    if(!error && data) CUSTOM_PANELS = data;
+    SAVED_PANELS = JSON.parse(JSON.stringify(CUSTOM_PANELS));
+  }catch(e){ console.warn('custom panels load failed (non-fatal):', e); }
+}
+function renderCustomPanels(){
+  const grid = document.getElementById('main-sortable'); if(!grid) return;
+  // remember the built-in default order the first time, before anything is moved
+  if(!DEFAULT_ORDER){ DEFAULT_ORDER = [...grid.querySelectorAll(':scope > .panel')].map(el=>el.id); DEFAULT_SPANS = {}; grid.querySelectorAll(':scope > .panel').forEach(el=>{ const m=/span\s+(\d+)/.exec(el.style.gridColumn||''); if(m) DEFAULT_SPANS[el.id]=Number(m[1]); }); }
+  const want = new Set(CUSTOM_PANELS.map(cpId));
+  grid.querySelectorAll(':scope > .panel[data-custom="1"]').forEach(el=>{ if(!want.has(el.id)) el.remove(); });
+  CUSTOM_PANELS.forEach(p=>{
+    let el = document.getElementById(cpId(p));
+    if(!el){
+      el = document.createElement('div');
+      el.className = 'panel'; el.id = cpId(p); el.dataset.custom = '1';
+      el.style.cssText = `grid-column:span ${p.span||4};position:relative;`;
+      el.innerHTML = `<div class="panel-header ph-inventory"><span class="panel-title"></span></div><div class="panel-body"></div><div class="resizer"></div>`;
+      grid.appendChild(el);
+    }
+    el.querySelector('.panel-title').textContent = (p.icon ? p.icon + ' ' : '') + p.title;
+  });
+  if(typeof initResizable==='function') initResizable();
+}
+async function loadLayout(){
+  LAYOUT_SAVED = null;
+  if(!window.NovusDB || !NovusDB.layout || !window.ACTIVE_PLANT) return;
+  try{
+    const { data, error } = await NovusDB.layout.get(window.ACTIVE_PLANT.id);
+    if(!error && data) LAYOUT_SAVED = data;
+  }catch(e){ console.warn('layout load failed (non-fatal):', e); }
+}
+function applyLayout(){
+  const grid = document.getElementById('main-sortable'); if(!grid || !LAYOUT_SAVED) return;
+  const order = LAYOUT_SAVED.panel_order || [], spans = LAYOUT_SAVED.panel_spans || {};
+  order.forEach(id=>{ const el=document.getElementById(id); if(el && el.parentNode===grid) grid.appendChild(el); });
+  // panels not mentioned in the saved order (e.g. just added) keep their place at the end
+  [...grid.querySelectorAll(':scope > .panel')].filter(el=>!order.includes(el.id)).forEach(el=>grid.appendChild(el));
+  Object.keys(spans).forEach(id=>{ const el=document.getElementById(id); if(el) el.style.gridColumn = 'span ' + spans[id]; });
+}
+function currentLayout(){
+  const grid = document.getElementById('main-sortable'); const order=[], spans={};
+  grid.querySelectorAll(':scope > .panel').forEach(el=>{ order.push(el.id); const m=/span\s+(\d+)/.exec(el.style.gridColumn||''); if(m) spans[el.id]=Number(m[1]); });
+  return { order, spans };
+}
+// ══ LAYOUT STUDIO ═════════════════════════════════════════════════════════
+// A drag-and-drop mini-preview of the whole dashboard. Everything done here is
+// a DRAFT held in this browser only: nothing changes for anyone else until an
+// admin presses "Save for everyone". "Preview on dashboard" shows the draft on
+// the real page (with a bar to save or discard); Discard goes back to what is saved.
+let SAVED_CW = [], SAVED_SRC = {}, SAVED_PANELS = [], HIDDEN_SAVED = new Set(), LS_BUILTIN = [], _lsSortable = null;
+const LS = { draft:null, hist:[], hi:-1, open:false };
+function lsClone(o){ return JSON.parse(JSON.stringify(o)); }
+function lsSrcPlain(m){ const o = {}; Object.keys(m||{}).forEach(k=>{ const r = m[k]; o[k] = { sheet:r.sheet, field:r.field, row_key:r.row_key||'', agg:r.agg||'latest' }; }); return o; }
+const LS_CW_KEYS = ['id','panel_id','widget_type','sheet','field','agg','range_days','target','target_dir','full_width','label','body'];
+function lsCwSig(w){ return JSON.stringify(LS_CW_KEYS.map(k=>w[k]===undefined?null:w[k])); }
+function lsUniverse(panels){ return (DEFAULT_ORDER||[]).concat(panels.map(cpId)); }
+function lsNormOrder(order, panels){
+  const u = lsUniverse(panels), seen = new Set(), out = [];
+  (order||[]).forEach(id=>{ if(u.includes(id) && !seen.has(id)){ seen.add(id); out.push(id); } });
+  u.forEach(id=>{ if(!seen.has(id)) out.push(id); });
+  return out;
+}
+function lsDefaultSpans(panels){ const s = Object.assign({}, DEFAULT_SPANS||{}); panels.forEach(p=>{ s[cpId(p)] = p.span||4; }); return s; }
+function lsSavedState(){
+  const panels = lsClone(SAVED_PANELS);
+  return { panels,
+    order: lsNormOrder(LAYOUT_SAVED && LAYOUT_SAVED.panel_order, panels),
+    spans: Object.assign(lsDefaultSpans(panels), (LAYOUT_SAVED && LAYOUT_SAVED.panel_spans) || {}),
+    hidden: [...HIDDEN_SAVED].sort(), cw: lsClone(SAVED_CW), src: lsSrcPlain(SAVED_SRC), hl: lsClone(HL_SAVED), prod: PROD_DB ? lsClone(PROD_DB) : null };
+}
+function lsNorm(st){
+  const u = lsUniverse(st.panels);
+  return JSON.stringify({ p: st.panels.map(p=>[p.id,p.title,p.icon||'',p.span||4]), o: lsNormOrder(st.order, st.panels),
+    s: u.map(id=>st.spans[id]||0), h: [...st.hidden].sort(), w: (st.cw||[]).map(lsCwSig).sort(), l: (st.hl||[]).map(c=>[c.key,c.label,c.icon||'']), r: JSON.stringify(st.prod||null), q: Object.keys(st.src||{}).sort().map(k=>[k,st.src[k].sheet,st.src[k].field,st.src[k].row_key||'',st.src[k].agg||'latest']) });
+}
+function lsDirty(){ return !!(LS.draft && lsNorm(LS.draft) !== lsNorm(lsSavedState())); }
+function lsEnsure(){ if(!LS.draft){ LS.draft = lsSavedState(); LS.hist = [JSON.stringify(LS.draft)]; LS.hi = 0; } }
+function lsPush(){ LS.hist = LS.hist.slice(0, LS.hi+1); LS.hist.push(JSON.stringify(LS.draft)); LS.hi = LS.hist.length-1; if(window.EDIT) EDIT.persist(); }
+function lsChange(mut){ lsEnsure(); mut(LS.draft); LS.draft.order = lsNormOrder(LS.draft.order, LS.draft.panels); lsPush(); lsRefresh(); }
+function lsRefresh(){ if(window.EDIT) EDIT.refresh(); }
+function lsApply(st){
+  CUSTOM_PANELS = lsClone(st.panels); renderCustomPanels();
+  const grid = document.getElementById('main-sortable');
+  lsNormOrder(st.order, st.panels).forEach(id=>{ const el = document.getElementById(id); if(el && el.parentNode===grid) grid.appendChild(el); });
+  Object.keys(st.spans).forEach(id=>{ const el = document.getElementById(id); if(el) el.style.gridColumn = 'span ' + st.spans[id]; });
+  HIDDEN_ITEMS = new Set(st.hidden);
+  CUSTOM_WIDGETS = lsClone(st.cw||[]);
+  METRIC_SOURCES = {}; Object.keys(st.src||{}).forEach(k=>{ METRIC_SOURCES[k] = Object.assign({ item_key:k }, st.src[k]); });
+  HL_CARDS = lsClone(st.hl||HL_DEFAULT); hlBuildGrid();
+  PROD_SAVED = st.prod ? lsClone(st.prod) : null;
+  applyHidden();
+  if(typeof renderDashboard==='function' && workbook) renderDashboard(); else renderCustomWidgets();
+  window.dispatchEvent(new Event('resize'));
+}
+// A drag or resize made directly on the real dashboard also becomes a draft (admins only).
+function layoutChanged(){
+  if(!(window.EDIT && EDIT.on)) return;
+  lsEnsure();
+  const cur = currentLayout();
+  LS.draft.order = lsNormOrder(cur.order, LS.draft.panels);
+  Object.assign(LS.draft.spans, cur.spans);
+  lsPush(); if(window.EDIT){ EDIT.updateBar(); EDIT.decorate(); }
+}
+function lsUndo(){ if(LS.hi>0){ LS.hi--; LS.draft = JSON.parse(LS.hist[LS.hi]); lsRefresh(); } }
+function lsRedo(){ if(LS.hi<LS.hist.length-1){ LS.hi++; LS.draft = JSON.parse(LS.hist[LS.hi]); lsRefresh(); } }
+function layoutReset(){ lsChange(d=>{ d.order = lsNormOrder(DEFAULT_ORDER, d.panels); d.spans = lsDefaultSpans(d.panels); }); }
+
+function lsToast(msg){
+  let t = document.getElementById('ls-toast');
+  if(!t){ t = document.createElement('div'); t.id = 'ls-toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(()=>t.classList.remove('show'), 3500);
+}
+function lsSummary(){
+  const d = LS.draft, s = lsSavedState(); if(!d) return [];
+  const out = [], sIds = new Set(s.panels.map(p=>p.id)), dIds = new Set(d.panels.map(p=>p.id));
+  const add = d.panels.filter(p=>!sIds.has(p.id)).length, rem = s.panels.filter(p=>!dIds.has(p.id)).length;
+  const u = lsUniverse(d.panels), so = lsNormOrder(s.order, d.panels), dord = lsNormOrder(d.order, d.panels);
+  const resized = u.filter(id=>s.spans[id] !== undefined && s.spans[id] !== d.spans[id]).length;
+  const moved = dord.filter((id,i)=>so[i]!==id).length;
+  const hs = new Set(s.hidden), hd = new Set(d.hidden);
+  const hid = d.hidden.filter(k=>!hs.has(k)).length, shown = s.hidden.filter(k=>!hd.has(k)).length;
+  if(add) out.push(add + ' new section' + (add>1?'s':''));
+  if(rem) out.push(rem + ' section' + (rem>1?'s':'') + ' removed (with their widgets)');
+  if(moved) out.push('order changed');
+  if(resized) out.push(resized + ' resized');
+  if(hid) out.push(hid + ' hidden');
+  if(shown) out.push(shown + ' shown again');
+  const sw = new Map(s.cw.map(w=>[w.id,w])), dw = new Map(d.cw.map(w=>[w.id,w]));
+  const wa = d.cw.filter(w=>!sw.has(w.id)).length, wr = s.cw.filter(w=>!dw.has(w.id)).length, wm = d.cw.filter(w=>sw.has(w.id) && lsCwSig(sw.get(w.id))!==lsCwSig(w)).length;
+  if(wa) out.push(wa + ' widget' + (wa>1?'s':'') + ' added');
+  if(wm) out.push(wm + ' widget' + (wm>1?'s':'') + ' edited');
+  if(wr) out.push(wr + ' widget' + (wr>1?'s':'') + ' removed');
+  if(JSON.stringify(s.hl)!==JSON.stringify(d.hl)) out.push('highlight cards changed');
+  const sq = JSON.stringify(Object.keys(s.src).sort().map(k=>[k,s.src[k]])), dq = JSON.stringify(Object.keys(d.src).sort().map(k=>[k,d.src[k]]));
+  if(sq!==dq){ const ks = new Set([...Object.keys(s.src),...Object.keys(d.src)]); let n=0; ks.forEach(k=>{ if(JSON.stringify(s.src[k])!==JSON.stringify(d.src[k])) n++; }); out.push(n + ' tile' + (n>1?'s':'') + ' re-pointed'); }
+  return out;
+}
+async function lsReloadSaved(){
+  await Promise.all([loadCustomPanels(), loadLayout(), loadHiddenItems(), loadCustomWidgets(), loadMetricSources(), loadHighlightCards()]);
+  if(LS.draft) lsApply(LS.draft);
+}
+async function lsSave(){
+  if(!LS.draft || !lsDirty()) return false;
+  if(!window.NovusDB || !NovusDB.layout || !NovusDB.customPanels || !NovusDB.hiddenItems){ lsToast('Saving needs the database connection, which is not set up yet.'); return false; }
+  const d = LS.draft, s = lsSavedState(), plant = window.PLANT_CONFIG.plant.id, user = (NovusCore.getUser && NovusCore.getUser()?.username) || 'unknown';
+  const sIds = new Set(s.panels.map(p=>p.id)), dIds = new Set(d.panels.map(p=>p.id));
+  const added = d.panels.filter(p=>!sIds.has(p.id)), removed = s.panels.filter(p=>!dIds.has(p.id));
+  const renamed = d.panels.filter(p=>{ const o = s.panels.find(x=>x.id===p.id); return o && (o.title!==p.title || (o.icon||'')!==(p.icon||'')); });
+  const order = lsNormOrder(d.order, d.panels);
+  const isDefault = JSON.stringify(order) === JSON.stringify(lsNormOrder(DEFAULT_ORDER, d.panels)) && lsUniverse(d.panels).every(id=>d.spans[id] === lsDefaultSpans(d.panels)[id]);
+  try{
+    for(const p of added){ const { error } = await NovusDB.customPanels.add({ id:p.id, plant_id:plant, title:p.title, icon:p.icon||'', span:p.span||4, created_by:user }); if(error) throw error; }
+    for(const p of renamed){ const { error } = await NovusDB.customPanels.update(p.id, { title:p.title, icon:p.icon||'' }); if(error) throw error; }
+    const sw = new Map(s.cw.map(w=>[w.id,w])), dw = new Map(d.cw.map(w=>[w.id,w]));
+    for(const w of s.cw.filter(w=>!dw.has(w.id))){ const { error } = await NovusDB.customWidgets.remove(w.id); if(error) throw error; }
+    for(const p of removed){ const { error } = await NovusDB.customPanels.remove(p.id); if(error) throw error; }
+    for(const w of d.cw){
+      if(!sw.has(w.id)){ const { error } = await NovusDB.customWidgets.add(Object.assign({ plant_id:plant, created_by:user }, w)); if(error) throw error; }
+      else if(lsCwSig(sw.get(w.id)) !== lsCwSig(w)){
+        const { error } = await NovusDB.customWidgets.update(w.id, { panel_id:w.panel_id, widget_type:w.widget_type, sheet:w.sheet, field:w.field, agg:w.agg||null, range_days:w.range_days ?? 30, target:(w.target===undefined||w.target==='')?null:w.target, target_dir:w.target_dir||'gte', full_width:!!w.full_width, label:w.label, ...(w.body!==undefined?{body:w.body}:{}) });
+        if(error) throw error;
+      }
+    }
+    if(JSON.stringify(s.hl)!==JSON.stringify(d.hl) && NovusDB.highlightCards){
+      const isDef = JSON.stringify(d.hl)===JSON.stringify(HL_DEFAULT);
+      const { error } = isDef ? await NovusDB.highlightCards.clear(plant) : await NovusDB.highlightCards.save(plant, d.hl, user);
+      if(error) throw error;
+    }
+    if(JSON.stringify(s.prod||null)!==JSON.stringify(d.prod||null) && NovusDB.panelConfig){
+      const { error } = d.prod ? await NovusDB.panelConfig.save(plant, 'panel-production', d.prod, user) : await NovusDB.panelConfig.clear(plant, 'panel-production');
+      if(error) throw error;
+    }
+    if(NovusDB.metricSources){
+      for(const k of Object.keys(d.src)){ if(JSON.stringify(d.src[k])!==JSON.stringify(s.src[k])){ const { error } = await NovusDB.metricSources.set(plant, k, d.src[k], user); if(error) throw error; } }
+      for(const k of Object.keys(s.src)){ if(!d.src[k]){ const { error } = await NovusDB.metricSources.clear(plant, k); if(error) throw error; } }
+    }
+    const hs = new Set(s.hidden), hd = new Set(d.hidden);
+    for(const k of d.hidden) if(!hs.has(k)){ const { error } = await NovusDB.hiddenItems.hide(plant, k, user); if(error) throw error; }
+    for(const k of s.hidden) if(!hd.has(k)){ const { error } = await NovusDB.hiddenItems.show(plant, k); if(error) throw error; }
+    if(isDefault){ const { error } = await NovusDB.layout.clear(plant); if(error) throw error; }
+    else { const { error } = await NovusDB.layout.save(plant, order, d.spans, user); if(error) throw error; }
+  }catch(e){
+    console.error(e);
+    lsToast('Some changes could not be saved' + (e && e.message ? ' (' + e.message + ')' : '') + '. Your draft is still here. Press Save again.');
+    await lsReloadSaved(); lsRefresh(); return false;
+  }
+  SAVED_PANELS = lsClone(d.panels); LAYOUT_SAVED = isDefault ? null : { panel_order: order, panel_spans: d.spans }; HIDDEN_SAVED = new Set(d.hidden);
+  PROD_DB = d.prod ? lsClone(d.prod) : null;
+  HL_SAVED = lsClone(d.hl); SAVED_CW = lsClone(d.cw); SAVED_SRC = {}; Object.keys(d.src).forEach(k=>{ SAVED_SRC[k] = Object.assign({ item_key:k }, d.src[k]); });
+  LS.draft = null;
+  lsApply(lsSavedState());
+  return true;
+}
+
+(function(){
+  let t=null;
+  const refresh=()=>{ clearTimeout(t); t=setTimeout(async()=>{
+    await Promise.all([loadCustomPanels(), loadLayout()]);
+    if(LS.draft && lsDirty()){ lsApply(LS.draft); if(window.EDIT) EDIT.refresh(); return; }   // never overwrite someone's unsaved draft
+    LS.draft = null;
+    renderCustomPanels(); applyLayout(); applyRoleAccess(); renderCustomWidgets(); applyHidden();
+    if(window.EDIT){ EDIT.loadToken(); EDIT.decorate(); }
+  },500); };
+  if(window.NovusDB && NovusDB.customPanels && NovusDB.customPanels.subscribe) NovusDB.customPanels.subscribe(refresh);
+  if(window.NovusDB && NovusDB.layout && NovusDB.layout.subscribe) NovusDB.layout.subscribe(refresh);
+})();
+
+// ── Where each built-in tile gets its number (shared per plant) ──────────
+// A tile can be pointed at any sheet / column (and one row, e.g. Cerritos) and
+// told to show the latest value, or the average / total of the last 7 days.
+let METRIC_SOURCES = {};   // item_key -> {sheet, field, row_key, agg}
+const SRC_AGG_LABELS = { latest:'Latest value', avg7:'Average of last 7 days', sum7:'Total of last 7 days' };
+const TILE_CHARTS = { 'wh-fill':['wh-fill-chart',((window.PLANT_CONFIG.cities||[])[0]||{}).fillLabel||'Fill Rate %'], 'wh-ce-fill':['wh-ce-chart',((window.PLANT_CONFIG.cities||[])[1]||{}).fillLabel||'Second Site Fill Rate %'] };
+async function loadMetricSources(){
+  METRIC_SOURCES = {};
+  if(!window.NovusDB || !NovusDB.metricSources || !window.ACTIVE_PLANT) return;
+  try{
+    const { data, error } = await NovusDB.metricSources.getAll(window.ACTIVE_PLANT.id);
+    if(!error && data) data.forEach(r=>{ METRIC_SOURCES[r.item_key] = r; });
+  }catch(e){ console.warn('metric sources load failed (non-fatal):', e); }
+  SAVED_SRC = JSON.parse(JSON.stringify(METRIC_SOURCES));
+  if(LS.draft && lsDirty()){ METRIC_SOURCES = {}; Object.keys(LS.draft.src||{}).forEach(k=>{ METRIC_SOURCES[k] = Object.assign({ item_key:k }, LS.draft.src[k]); }); }
+}
+function srcRowOptions(sheetName){
+  const seen = new Map();
+  (sheet(sheetName)||[]).forEach(r=>{ const k = entryDimKey(r); if(k && !seen.has(k)){ const raw = valByKey(r,'Line') ?? valByKey(r,'City') ?? valByKey(r,'PSA Bin') ?? valByKey(r,'Item') ?? valByKey(r,'Row'); seen.set(k, String(raw).trim().replace(/\b\w/g,c=>c.toUpperCase())); } });
+  return [...seen.entries()].map(([k,label])=>({ key:k, label }));
+}
+function srcValue(src){
+  let rows = sheet(src.sheet) || [];
+  if(src.row_key) rows = rows.filter(r=>entryDimKey(r)===String(src.row_key).toLowerCase());
+  const pts = [];
+  rows.forEach(r=>{ const d=parseDate(r.Date); const raw=valByKey(r,src.field); const n=Number(raw); if(d && raw!=null && raw!=='' && !isNaN(n)) pts.push({ d:toDS(d), v:n }); });
+  if(!pts.length) return null;
+  pts.sort((a,b)=>a.d<b.d?-1:(a.d>b.d?1:0));
+  const last = pts[pts.length-1];
+  if(src.agg==='latest' || !src.agg) return last.v;
+  const end = new Date(last.d+'T00:00:00Z'); end.setUTCDate(end.getUTCDate()-6);
+  const win = pts.filter(x=>x.d>=toDS(end));
+  const sum = win.reduce((a,x)=>a+x.v,0);
+  return src.agg==='sum7' ? sum : sum/win.length;
+}
+function applyMetricSources(){
+  Object.keys(METRIC_SOURCES).forEach(key=>{
+    const src = METRIC_SOURCES[key]; const id = key.replace(/^metric:/,'');
+    const el = document.getElementById(id); if(!el) return;
+    const v = srcValue(src);
+    // Keep the tile's own look: a tile that showed a % keeps showing one.
+    if(el.dataset.srcpct===undefined){ const t=el.textContent.trim(); if(t && t!=='—') el.dataset.srcpct = t.endsWith('%') ? '1' : '0'; }
+    const isPct = (ENTRY_PCT[src.sheet] && ENTRY_PCT[src.sheet].has(src.field)) || el.dataset.srcpct==='1' || /%/.test(src.field);
+    el.textContent = v==null ? '—' : (isPct ? pct(v,1) : Number(v).toLocaleString(undefined,{maximumFractionDigits:2}));
+    el.title = 'Fed by ' + src.sheet + ' › ' + src.field + (src.row_key ? ' › ' + src.row_key : '') + ' (' + (SRC_AGG_LABELS[src.agg]||'Latest value') + ')';
+    const ch = TILE_CHARTS[id];
+    if(ch && typeof mkDoughnut==='function' && window.Chart) mkDoughnut(ch[0], v==null?0:v, ch[1]);
+  });
+}
+
+// ── Show / hide built-in panels and metric boxes (shared per plant) ──
+let HIDDEN_ITEMS = new Set();
+function layItems(){
+  return CW_PANELS.map(p=>{
+    const el = document.getElementById(p.id); if(!el) return null;
+    const boxes = [...el.querySelectorAll('.metric-box:not(.cw-box)')].map((b,i)=>{
+      const lbl = b.querySelector('.metric-label'); const val = b.querySelector('.metric-value');
+      if(!lbl) return null;
+      return { key: 'metric:' + (val && val.id ? val.id : p.id+'#'+i), label: lbl.textContent.trim(), el: b };
+    }).filter(Boolean);
+    return { panel:p, el, boxes };
+  }).filter(Boolean);
+}
+function applyHidden(){
+  const editing = !!(window.EDIT && EDIT.on), cls = editing ? 'ed-hidden' : 'nv-hidden';
+  const mark = (el, off)=>{ el.classList.toggle('nv-hidden', off && !editing); el.classList.toggle('ed-hidden', off && editing); };
+  document.querySelectorAll('#main-sortable > .panel').forEach(el=>mark(el, HIDDEN_ITEMS.has('panel:'+el.id)));
+  layItems().forEach(it=>it.boxes.forEach(b=>mark(b.el, HIDDEN_ITEMS.has(b.key))));
+}
+async function loadHiddenItems(){
+  HIDDEN_ITEMS = new Set();
+  if(!window.NovusDB || !NovusDB.hiddenItems || !window.ACTIVE_PLANT) return;
+  try{
+    const { data, error } = await NovusDB.hiddenItems.getAll(window.ACTIVE_PLANT.id);
+    if(!error && data) HIDDEN_ITEMS = new Set(data.map(r=>r.item_key));
+  }catch(e){ console.warn('hidden items load failed (non-fatal):', e); }
+  HIDDEN_SAVED = new Set(HIDDEN_ITEMS);
+  if(LS.draft && lsDirty()) HIDDEN_ITEMS = new Set(LS.draft.hidden);
+  applyHidden();
+}
+function laySrcRefresh(){
+  const sh = document.getElementById('lay-s-sheet').value;
+  const f = document.getElementById('lay-s-field'), r = document.getElementById('lay-s-row');
+  ['lay-f-col','lay-f-agg'].forEach(id=>{ document.getElementById(id).style.display = sh ? '' : 'none'; });
+  f.innerHTML = (sh ? getAvailableFields(sh) : []).map(x=>`<option value="${cwEsc(x)}">${cwEsc(x)}</option>`).join('');
+  const rows = sh ? srcRowOptions(sh) : [];
+  r.innerHTML = `<option value="">All rows</option>` + rows.map(x=>`<option value="${cwEsc(x.key)}">${cwEsc(x.label)}</option>`).join('');
+  document.getElementById('lay-f-row').style.display = (sh && rows.length) ? '' : 'none';
+}
+if(window.NovusDB && NovusDB.highlightCards && NovusDB.highlightCards.subscribe){
+  NovusDB.highlightCards.subscribe(()=>{ loadHighlightCards(); });
+}
+if(window.NovusDB && NovusDB.metricSources && NovusDB.metricSources.subscribe){
+  NovusDB.metricSources.subscribe(async ()=>{ await loadMetricSources(); if(typeof renderDashboard==='function' && workbook) renderDashboard(); });
+}
+
+if(window.NovusDB && NovusDB.hiddenItems && NovusDB.hiddenItems.subscribe){
+  NovusDB.hiddenItems.subscribe(()=>{ loadHiddenItems(); });
+}
+
+function renderCustomWidgets(){
+  if(window.EDIT) EDIT.decorate();
+  // Clear every zone first so a re-render (role change, data refresh,
+  // realtime update) never duplicates a card, and so a widget removed
+  // elsewhere disappears immediately.
+  document.querySelectorAll('.custom-widget-zone').forEach(z=>z.innerHTML='');
+  const isAdmin = !!(window.NovusCore && NovusCore.isAdmin && NovusCore.isAdmin());
+  const rowOf = new Map();   // zone -> the .metric-row currently being filled (up to 3 tiles)
+  CUSTOM_WIDGETS.forEach(w=>{
+    const zone = ensureCustomZone(w.panel_id);
+    if(!zone) return;
+    const x = '';   // removing widgets is done in the Layout Studio, never on the live dashboard
+    const pillHtml = cwTargetPillHtml(w);
+    const label = cwEsc(w.label);
+    // Number tiles look exactly like the built-in ones and sit side by side, up to three per row.
+    const tile = (inner, cls)=>{
+      let row = rowOf.get(zone);
+      if(!row || row.children.length>=3 || w.full_width){ row = document.createElement('div'); row.className = 'metric-row cw-row'; zone.appendChild(row); rowOf.set(zone, w.full_width?null:row); }
+      const box = document.createElement('div'); box.className = 'metric-box cw-box custom-widget'; box.id = 'cw-' + w.id; box.innerHTML = x + inner; row.appendChild(box); return box;
+    };
+    const block = (inner)=>{
+      rowOf.set(zone, null);
+      const el = document.createElement('div'); el.className = 'custom-widget'; el.id = 'cw-' + w.id; el.innerHTML = x + inner; zone.appendChild(el); return el;
+    };
+    if(w.widget_type==='text'){
+      const edit = '';
+      block(`${edit}<div class="section-label">${label}</div><div class="drivers-box" id="cw-note-body-${w.id}" style="min-height:60px;">${cwEsc(w.body||'')}</div>`);
+    } else if(w.widget_type==='trend'){
+      tile(`<div class="metric-label">${label}</div>${cwTrendHtml(w)}${pillHtml}`);
+    } else if(w.widget_type==='metric'){
+      const val = cwCompute(w);
+      const b = tile(`<div class="metric-label">${label}</div><div class="metric-value">${val==null?'—':(val!==''&&!isNaN(val)?cwFmt(val):cwEsc(val))}</div>${pillHtml}`);
+      b.title = w.sheet + ' · ' + w.field;
+    } else if(w.widget_type==='doughnut'){
+      const canvasId = 'cw-chart-' + w.id;
+      block(`<div class="section-label">${label}</div><div class="chart-wrap" style="height:115px;"><canvas id="${canvasId}"></canvas></div>${pillHtml}`);
+      const val = cwCompute({...w, agg:'latest'});
+      mkDoughnut(canvasId, val==null?0:val, w.label);
+    } else {
+      // line / area / bar / hbar -- all driven off the same date-ranged history
+      const canvasId = 'cw-chart-' + w.id;
+      block(`<div class="section-label">${label}</div><div class="chart-wrap" style="height:155px;"><canvas id="${canvasId}"></canvas></div>${pillHtml}`);
+      // Rows are already narrowed to the widget's range, so a high maxPts
+      // here just means "don't truncate the (already short) list further".
+      const hist = getHist(cwFilteredRows(w), w.field, 400);
+      if(hist.labels.length){
+        const chartType = (w.widget_type==='hbar') ? 'bar' : (w.widget_type==='area' ? 'line' : w.widget_type);
+        const datasets = [{label:w.field, data:hist.values, borderColor:'#059669', backgroundColor:'rgba(5,150,105,.08)', fill:w.widget_type==='area'}];
+        // A flat dashed reference line at the target value (skipped for hbar,
+        // where a "line" dataset would plot along the wrong axis).
+        if(w.target!=null && w.target!=='' && w.widget_type!=='hbar'){
+          datasets.push({label:'Target', data:hist.labels.map(()=>w.target), type:'line', borderColor:'#94a3b8', backgroundColor:'transparent', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false});
+        }
+        mkChart(canvasId, chartType, hist.labels, datasets,
+          {title:w.label, indexAxis: w.widget_type==='hbar' ? 'y' : 'x'});
+      }
+    }
+  });
+}
+
+// Realtime: a data-entry save or column change refreshes the overlay and redraws.
+(function(){
+  let t=null;
+  const refresh=()=>{ clearTimeout(t); t=setTimeout(async()=>{
+    await loadDataEntrySheet();
+    if(typeof renderDashboard==='function' && workbook) renderDashboard(); else renderCustomWidgets();
+  },600); };
+  if(window.NovusDB && NovusDB.dataEntries && NovusDB.dataEntries.subscribe) NovusDB.dataEntries.subscribe(refresh);
+  if(window.NovusDB && NovusDB.metrics && NovusDB.metrics.subscribe) NovusDB.metrics.subscribe(refresh);
+})();
+
+// Realtime: keep every open browser's widget set in sync as admins
+// add/remove widgets, filtered to the plant this browser is viewing.
+// Guarded the same way as everything else above -- a no-op until
+// supabase-config.js defines NovusDB.customWidgets.subscribe.
+if(window.NovusDB && NovusDB.customWidgets && NovusDB.customWidgets.subscribe){
+  NovusDB.customWidgets.subscribe(payload => {
+    if(!window.ACTIVE_PLANT) return;
+    if(payload.eventType === 'DELETE'){
+      const oldId = payload.old && payload.old.id;
+      if(oldId) SAVED_CW = SAVED_CW.filter(w=>w.id!==oldId);
+    } else {
+      const row = payload.new;
+      if(!row || row.plant_id !== window.ACTIVE_PLANT.id) return;
+      const idx = SAVED_CW.findIndex(w=>w.id===row.id);
+      if(idx>-1) SAVED_CW[idx]=row; else SAVED_CW.push(row);
+    }
+    if(LS.draft && lsDirty()) return;   // never overwrite an unsaved draft
+    CUSTOM_WIDGETS = lsClone(SAVED_CW);
+    renderCustomWidgets();
+  });
+}
+</script>
+
+<script src="dds-editor.js"></script>
+<script src="novus-interactions.js" defer></script>
+</body>
+</html>

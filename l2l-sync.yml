@@ -1,0 +1,64 @@
+name: Sync L2L data
+
+on:
+  schedule:
+    # Every 3 hours, not once a day. GitHub's scheduled triggers can be
+    # delayed or occasionally dropped under load (their own docs say so),
+    # worst right at the top of the hour when everyone else's cron jobs
+    # fire too -- ':23' avoids that congestion. Running this often is
+    # safe because sync_l2l_to_dashboard.py upserts by date: a re-run
+    # updates today's existing row instead of duplicating it, so if one
+    # firing gets dropped, the next one a few hours later just catches it
+    # instead of the whole day going stale.
+    - cron: '23 */3 * * *'
+  workflow_dispatch:        # lets you also trigger it manually from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r l2l_sync_requirements.txt
+
+      - name: Write config.py from plant-config.js (key comes from the repo secret)
+        env:
+          L2L_API_KEY: ${{ secrets.L2L_API_KEY }}
+        run: python write_l2l_config.py
+
+      - name: "Run sync (self-healing: last 7 days)"
+        run: python sync_l2l_to_dashboard.py
+
+      - name: Commit and push if l2l-data.json changed
+        run: |
+          git config user.name "l2l-sync-bot"
+          git config user.email "actions@github.com"
+          git add l2l-data.json
+          git diff --staged --quiet && exit 0
+          git commit -m "Auto-sync L2L data"
+
+          # Something else (e.g. whatever writes dashboard-data.json) can
+          # push to main in the same few seconds this job is running, which
+          # makes a plain `git push` fail as a non-fast-forward. Rebase onto
+          # whatever's newly on the remote and retry instead of failing the
+          # run -- l2l-data.json is only ever touched by this job, so there's
+          # nothing for it to conflict with.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt/5) -- fetching and rebasing before retrying..."
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME"
+          done
+
+          echo "::error::Push failed after 5 attempts."
+          exit 1

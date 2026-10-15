@@ -1,0 +1,85 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Blank: start from scratch",
+  "description": "Only Production Summary, the Level 1 highlights and a welcome note. Add your own sections and numbers with Edit dashboard.",
+  "panels": [
+    {
+      "id": "welcome",
+      "title": "Welcome",
+      "icon": "👋",
+      "span": 12
+    }
+  ],
+  "order": [
+    "cpanel-welcome",
+    "panel-production",
+    "panel-highlights",
+    "panel-safety",
+    "panel-quality",
+    "panel-sanitation",
+    "panel-costs",
+    "panel-hr",
+    "panel-sap",
+    "panel-warehouse",
+    "panel-inventory"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 8,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 4,
+    "panel-hr": 4,
+    "panel-sap": 4,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12,
+    "cpanel-welcome": 12
+  },
+  "hidden": [
+    "panel:panel-costs",
+    "panel:panel-hr",
+    "panel:panel-inventory",
+    "panel:panel-quality",
+    "panel:panel-safety",
+    "panel:panel-sanitation",
+    "panel:panel-sap",
+    "panel:panel-warehouse"
+  ],
+  "cw": [
+    {
+      "id": "welcome-note",
+      "panel_id": "cpanel-welcome",
+      "widget_type": "text",
+      "sheet": "(text)",
+      "field": "(text)",
+      "agg": null,
+      "range_days": 0,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": true,
+      "label": "Getting started",
+      "body": "This dashboard is yours to shape. Open the ··· menu and choose Edit dashboard. Add a section for each area you review, then add numbers, charts or notes to it. Numbers come from the Data Entry page: add your columns there first. Hide this note when you no longer need it."
+    }
+  ],
+  "src": {},
+  "hl": [
+    {
+      "key": "Safety",
+      "label": "Safety",
+      "icon": "🦺"
+    },
+    {
+      "key": "Quality",
+      "label": "Quality",
+      "icon": "🥇"
+    },
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    }
+  ],
+  "prod": null
+}

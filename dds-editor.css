@@ -1,0 +1,97 @@
+/* dds-editor.css — look of the "Edit dashboard" mode (see dds-editor.js). Uses the site's own colour variables. */
+
+body.editing { padding-bottom: 96px; }
+body.editing #main-sortable > .panel { outline: 2px dashed rgba(5,150,105,.45); outline-offset: 2px; }
+body.editing #main-sortable > .panel.sortable-ghost { opacity: .35; }
+
+/* ── Control bar at the top of every section ── */
+.ed-pbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; background: linear-gradient(135deg,#0d1f18,#065f46); color: #fff; font-size: .74rem; position: relative; z-index: 3; }
+.ed-pbar.off { background: linear-gradient(135deg,#475569,#64748b); }
+.ed-grip { cursor: grab; font-weight: 900; letter-spacing: -2px; padding: 4px 6px; border-radius: 5px; user-select: none; touch-action: none; }
+.ed-grip:hover, .ed-grip:focus-visible { background: rgba(255,255,255,.2); outline: none; }
+.ed-ptitle { font-weight: 800; flex: 1 1 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-ptitle em { font-weight: 500; opacity: .8; }
+.ed-ptools { display: flex; flex-wrap: wrap; gap: 3px; }
+
+.ed-ic { font: inherit; font-size: .68rem; font-weight: 700; line-height: 1; min-width: 28px; min-height: 28px; padding: 4px 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.14); color: #fff; cursor: pointer; }
+.ed-ic:hover { background: rgba(255,255,255,.28); }
+.ed-ic.on { background: #34d399; color: #064e3b; border-color: #34d399; }
+.ed-ic.del { background: rgba(220,38,38,.6); }
+.ed-insp-head .ed-ic { background: var(--surface2); color: var(--ink2); border-color: var(--border); }
+.ed-pbar button:focus-visible, .ed-grip:focus-visible, .ed-tilectl button:focus-visible, .ed-add:focus-visible { outline: 3px solid #fbbf24; outline-offset: 1px; }
+
+/* ── Small controls on each number / card ── */
+body.editing .metric-box, body.editing .custom-widget, body.editing .hl-card { position: relative; }
+.ed-tilectl { position: absolute; top: -9px; right: -6px; z-index: 4; display: inline-flex; gap: 2px; }
+.ed-tilectl button { width: 24px; height: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink2); font-size: .8rem; line-height: 1; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.ed-tilectl button:hover { background: var(--green-xll); color: var(--green-d); }
+.hl-card > .ed-tilectl { top: 6px; right: 6px; }
+.hl-card .ed-tilectl button { background: rgba(255,255,255,.92); }
+.ed-fed { box-shadow: inset 0 0 0 2px rgba(5,150,105,.45); border-radius: var(--radius-xs); }
+.ed-hidden { opacity: .4; outline: 2px dashed #94a3b8; outline-offset: -2px; }
+.ed-hidden .metric-value, .ed-hidden .metric-label { text-decoration: line-through; }
+
+.ed-add { display: block; width: calc(100% - 16px); margin: 8px; padding: 9px 10px; border: 2px dashed #059669; border-radius: 8px; background: transparent; color: #047857; font: inherit; font-size: .76rem; font-weight: 700; cursor: pointer; min-height: 40px; }
+.ed-add:hover { background: rgba(5,150,105,.09); }
+
+/* ── Bottom bar ── */
+#ed-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10002; background: #0d1f18; color: #fff; border-top: 3px solid #34d399; box-shadow: 0 -6px 24px rgba(0,0,0,.25); }
+#ed-bar.dirty { border-top-color: #fbbf24; }
+.ed-bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; }
+.ed-bar-row .sp { flex: 1; }
+.ed-title { font-size: .84rem; white-space: nowrap; }
+.ed-sum { font-size: .74rem; color: #a7f3d0; flex: 1 1 220px; min-width: 0; }
+#ed-bar.dirty .ed-sum { color: #fde68a; }
+.ed-btn { font: inherit; font-size: .76rem; font-weight: 700; min-height: 36px; padding: 7px 13px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--ink); cursor: pointer; }
+#ed-bar .ed-btn { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.3); }
+.ed-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.ed-btn:disabled { opacity: .4; cursor: default; }
+.ed-btn.primary, #ed-bar .ed-btn.primary { background: linear-gradient(135deg,#065f46,#059669); color: #fff; border-color: transparent; }
+.ed-btn.danger { color: var(--red-l); }
+.ed-btn:focus-visible { outline: 3px solid #fbbf24; outline-offset: 1px; }
+.ed-menu { position: absolute; right: 16px; bottom: 100%; margin-bottom: 6px; min-width: 260px; max-width: calc(100vw - 32px); background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 40px rgba(15,23,42,.3); overflow: hidden; }
+.ed-menu[hidden] { display: none; }
+.ed-menu button { display: block; width: 100%; text-align: left; padding: 11px 14px; border: none; border-bottom: 1px solid var(--border); background: transparent; color: inherit; font: inherit; font-size: .8rem; cursor: pointer; }
+.ed-menu button:last-child { border-bottom: none; }
+.ed-menu button:hover { background: var(--green-xll); }
+
+/* ── The inspector (one popover for every edit) ── */
+#ed-insp { position: fixed; z-index: 10005; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 18px 60px rgba(15,23,42,.35); display: flex; flex-direction: column; max-height: calc(100vh - 100px); }
+#ed-insp.wide { left: 50%; top: 50%; transform: translate(-50%,-50%); width: min(720px, calc(100vw - 24px)); max-height: calc(100vh - 40px); }
+#ed-insp.sheet:not(.wide) { left: 0; right: 0; bottom: 0; top: auto; width: auto; border-radius: 14px 14px 0 0; max-height: 86vh; }
+.ed-insp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: .88rem; }
+.ed-insp-body { padding: 14px; overflow-y: auto; flex: 1; display: grid; gap: 10px; align-content: start; }
+.ed-insp-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--surface2); border-radius: 0 0 12px 12px; }
+.ed-insp-foot .sp { flex: 1; }
+.ed-picked { outline: 3px solid #fbbf24 !important; outline-offset: 2px; }
+
+.ed-f { display: grid; gap: 4px; font-size: .7rem; font-weight: 700; color: var(--ink3); }
+.ed-f input, .ed-f select, .ed-f textarea { font: inherit; font-size: .84rem; font-weight: 500; padding: 8px 9px; min-height: 38px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); width: 100%; box-sizing: border-box; }
+.ed-f input:focus, .ed-f select:focus, .ed-f textarea:focus { outline: 3px solid rgba(5,150,105,.35); border-color: #059669; }
+.ed-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ed-chk { display: flex; align-items: center; gap: 8px; font-size: .8rem; font-weight: 600; color: var(--ink); min-height: 32px; }
+.ed-chk input { width: 18px; height: 18px; }
+.ed-hint { font-size: .72rem; color: var(--ink3); line-height: 1.5; margin: 0; }
+.ed-insp-body h4 { margin: 8px 0 0; font-size: .82rem; color: var(--ink); border-top: 1px solid var(--border); padding-top: 10px; }
+.ed-sub { font-size: .72rem; font-weight: 800; color: var(--green-d); margin-top: 4px; }
+.ed-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface2); }
+.ed-link { justify-self: start; border: none; background: none; padding: 4px 0; color: var(--green-d); font: inherit; font-size: .74rem; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.ed-link.danger { color: var(--red-l); }
+.ed-icons { display: flex; flex-wrap: wrap; gap: 6px; }
+.ed-icons button { font-size: 1.1rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); cursor: pointer; min-height: 36px; }
+.ed-lines { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+
+/* ── First-time tips and the "resume draft" strip ── */
+#ed-tips { position: fixed; left: 16px; bottom: 84px; z-index: 10001; width: min(380px, calc(100vw - 32px)); background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-left: 5px solid #059669; border-radius: 12px; box-shadow: 0 14px 44px rgba(15,23,42,.3); padding: 14px 16px; font-size: .78rem; line-height: 1.5; }
+#ed-tips ul { margin: 8px 0 12px; padding-left: 18px; }
+#ed-resume { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 10004; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; max-width: calc(100vw - 24px); padding: 10px 14px; background: #fffbeb; color: #78350f; border: 1px solid #fcd34d; border-radius: 12px; box-shadow: 0 8px 28px rgba(15,23,42,.25); font-size: .8rem; font-weight: 600; }
+
+@media (max-width: 760px) {
+  .ed-bar-row { padding: 8px 10px; }
+  .ed-title { flex: 1 1 100%; }
+  .ed-2 { grid-template-columns: 1fr; }
+  .ed-ptools { width: 100%; }
+  body.editing { padding-bottom: 150px; }
+  #ed-tips { top: 8px; bottom: auto; left: 8px; right: 8px; width: auto; max-height: 60vh; overflow-y: auto; z-index: 10004; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }

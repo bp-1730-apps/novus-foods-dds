@@ -1,0 +1,61 @@
+name: Export data entries to JSON
+
+# OPTIONAL. Snapshots the Supabase table into data/data-entries.json in this
+# repo so the data also lives in GitHub. Users never write to the file; only
+# this job does, so there are no conflicting commits from concurrent users.
+# Save as .github/workflows/export-entries.yml
+#
+# Repo secrets needed (Settings > Secrets and variables > Actions):
+#   SUPABASE_URL          your project URL (same as supabase.url in plant-config.js)
+#   SUPABASE_SERVICE_KEY  the project's service_role key (Supabase > Settings > API).
+#                         Reads are now limited to signed-in team members, so the
+#                         public anon key can no longer read data_entries. Keep this
+#                         key ONLY in the repo secret; never put it in a file.
+
+# PRIVACY: this writes your entries into the repo. If the repo is public, that
+# makes the entries public too, which undoes the sign-in protection. The schedule
+# is therefore OFF by default (run it by hand from the Actions tab). Turn the
+# schedule back on only if the repository is private.
+on:
+  # schedule:
+  #   - cron: '41 */6 * * *'   # every 6 hours, off the top of the hour
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: export-entries
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull rows from Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          mkdir -p data
+          curl -fsS \
+            -H "apikey: $SUPABASE_SERVICE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+            "$SUPABASE_URL/rest/v1/data_entries?select=*&order=created_at.asc&limit=10000" \
+            | python3 -c "import sys,json; json.dump(json.load(sys.stdin), open('data/data-entries.json','w'), indent=1)"
+
+      - name: Commit if changed
+        run: |
+          git config user.name "entries-export-bot"
+          git config user.email "actions@github.com"
+          git add data/data-entries.json
+          git diff --staged --quiet && exit 0
+          git commit -m "Auto-export data entries"
+          for attempt in 1 2 3 4 5; do
+            git push && exit 0
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME"
+          done
+          exit 1

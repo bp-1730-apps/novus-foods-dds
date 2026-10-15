@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script src="plant-config.js"></script>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Team</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="novus-styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script src="novus-core.js"></script>
+  <style>
+    .page { padding-top:24px; padding-bottom:60px; max-width:860px; }
+    .page-title { font-size:1.75rem; font-weight:800; color:var(--ink); letter-spacing:-.03em; }
+    .plant-tag { font-size:.72rem; font-weight:700; color:var(--green-d); background:var(--green-xll); border:1px solid var(--green-ll); padding:3px 10px; border-radius:20px; margin-left:12px; vertical-align:middle; }
+    .lead { color:var(--ink3); font-size:.88rem; margin:6px 0 20px; max-width:62ch; }
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:18px; overflow:hidden; box-shadow:var(--shadow-sm); }
+    .panel-header { background:linear-gradient(135deg,var(--green-xll),var(--green-ll)); border-bottom:1.5px solid #a7f3d0; padding:11px 18px; font-weight:800; font-size:.88rem; color:var(--green-d); display:flex; justify-content:space-between; gap:12px; }
+    .panel-body { padding:6px 18px 14px; }
+    .row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .row:last-child { border-bottom:none; }
+    .who { flex:1 1 220px; min-width:0; }
+    .who b { display:block; color:var(--ink); overflow-wrap:anywhere; } .who span { font-size:.74rem; color:var(--ink3); overflow-wrap:anywhere; }
+    select, input[type=text], input[type=email] { font:inherit; padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+    .btn-remove { background:rgba(220,38,38,.08); color:var(--red-l); border:1px solid rgba(220,38,38,.25); border-radius:6px; padding:5px 12px; font-size:.74rem; font-weight:700; cursor:pointer; }
+    .msg { font-size:.8rem; font-weight:700; padding:10px 18px 0; min-height:1.2em; } .msg.ok { color:var(--green); } .msg.err { color:var(--red-l); }
+    .empty { color:var(--ink4); padding:16px 0; }
+    .roles { font-size:.78rem; color:var(--ink3); padding:12px 18px; line-height:1.6; }
+    .add { display:flex; gap:8px; flex-wrap:wrap; padding:14px 18px 6px; align-items:center; }
+  </style>
+</head>
+<body id="main-body">
+<header class="cmd-header">
+  <div class="cmd-left">
+    <a href="hub.html"><img data-brand-logo alt="" class="cmd-logo"></a>
+    <div class="cmd-divider"></div>
+    <nav class="cmd-nav">
+      <a class="cmd-tab" href="hub.html">Home</a>
+      <a class="cmd-tab" href="dds-dashboard.html">Dashboard</a>
+      <a class="cmd-tab" href="data-entry.html">Data Entry</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <h1 class="page-title">Team<span class="plant-tag" id="plant-tag"></span></h1>
+  <p class="lead">Decide who can use this site. People request an account on the login page; they appear under “Waiting for approval” until you give them a role.</p>
+
+  <div class="panel" id="pending-panel">
+    <div class="panel-header"><span>Waiting for approval</span></div>
+    <div class="panel-body" id="pending"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>Approve someone by email</span></div>
+    <div class="add">
+      <input type="email" id="a-email" placeholder="their email" size="28">
+      <input type="text" id="a-name" placeholder="name shown (optional)" size="20">
+      <select id="a-role"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="admin">Admin</option></select>
+      <button type="button" class="btn btn-primary" id="a-btn">Approve</button>
+    </div>
+    <div class="msg" id="a-msg" role="status"></div>
+    <div class="roles"><b>Viewer</b> can look at everything. <b>Editor</b> can also enter data and type the highlight names. <b>Admin</b> can also change the dashboard layout, columns and tabs, and manage this list.</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>People with access</span></div>
+    <div class="panel-body" id="members"></div>
+    <div class="msg" id="m-msg" role="status"></div>
+  </div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const say = (id, t, cls) => { const e = $(id); e.textContent = t || ''; e.className = 'msg' + (cls ? ' ' + cls : ''); };
+  const ME = () => (NovusCore.getUser() || {});
+
+  async function load() {
+    const [m, p] = await Promise.all([
+      _sb.from('plant_members').select('*').order('created_at'),
+      _sb.rpc('pending_accounts')
+    ]);
+    if (m.error) { $('members').innerHTML = '<div class="empty">Could not load people: ' + esc(m.error.message) + '</div>'; return; }
+    $('members').innerHTML = (m.data || []).map(r => {
+      const self = r.user_id === ME().id;
+      return `<div class="row"><div class="who"><b>${esc(r.display_name || r.email)}</b><span>${esc(r.email)}${self ? ' · you' : ''}</span></div>
+        <select data-uid="${esc(r.user_id)}" ${self ? 'disabled title="You cannot change your own role"' : ''}>
+          ${['viewer', 'editor', 'admin'].map(x => `<option value="${x}"${x === r.role ? ' selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}
+        </select>
+        ${self ? '' : `<button type="button" class="btn-remove" data-rm="${esc(r.user_id)}" data-name="${esc(r.display_name || r.email)}">Remove access</button>`}</div>`;
+    }).join('') || '<div class="empty">No one yet.</div>';
+    const pend = (p.data || []);
+    $('pending').innerHTML = pend.map(r => `<div class="row"><div class="who"><b>${esc(r.email)}</b><span>Requested ${new Date(r.requested_at).toLocaleDateString()}</span></div>
+      <select id="pr-${esc(r.email)}"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="admin">Admin</option></select>
+      <button type="button" class="btn btn-primary" data-approve="${esc(r.email)}">Approve</button></div>`).join('') || '<div class="empty">Nobody is waiting.</div>';
+  }
+
+  async function approve(email, role, name) {
+    const { error } = await _sb.rpc('add_plant_member', { p_email: email, p_role: role, p_name: name || '' });
+    return error;
+  }
+
+  document.addEventListener('click', async e => {
+    const ap = e.target.closest('[data-approve]');
+    if (ap) {
+      const email = ap.dataset.approve;
+      const err = await approve(email, document.getElementById('pr-' + email).value);
+      err ? say('m-msg', err.message, 'err') : say('m-msg', email + ' approved ✓', 'ok'); load(); return;
+    }
+    const rm = e.target.closest('[data-rm]');
+    if (rm) {
+      if (!confirm('Remove access for ' + rm.dataset.name + '? They can request an account again later.')) return;
+      const { error } = await _sb.from('plant_members').delete().eq('user_id', rm.dataset.rm);
+      error ? say('m-msg', error.message, 'err') : say('m-msg', 'Access removed ✓', 'ok'); load();
+    }
+  });
+  document.addEventListener('change', async e => {
+    const sel = e.target.closest('select[data-uid]'); if (!sel) return;
+    const { error } = await _sb.from('plant_members').update({ role: sel.value }).eq('user_id', sel.dataset.uid);
+    error ? say('m-msg', error.message, 'err') : say('m-msg', 'Role updated ✓', 'ok'); load();
+  });
+  $('a-btn').addEventListener('click', async () => {
+    const email = $('a-email').value.trim();
+    if (!email) { say('a-msg', 'Type their email first.', 'err'); return; }
+    const err = await approve(email, $('a-role').value, $('a-name').value);
+    if (err) { say('a-msg', err.message, 'err'); return; }
+    say('a-msg', email + ' approved ✓', 'ok'); $('a-email').value = ''; $('a-name').value = ''; load();
+  });
+
+  window.onload = () => {
+    NovusCore.requireAuth();
+    if (!NovusCore.isAdmin()) { document.querySelector('.page').innerHTML = '<h1 class="page-title">Team</h1><p class="lead">Only plant admins can manage the team.</p>'; return; }
+    $('plant-tag').textContent = PLANT_CONFIG.plant.shortLabel;
+    document.title = 'Team – ' + PLANT_CONFIG.plant.name;
+    load();
+  };
+</script>
+</body>
+</html>

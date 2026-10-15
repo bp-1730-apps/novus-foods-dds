@@ -1,0 +1,19 @@
+{
+  "layouts": [
+    {
+      "name": "Blank: start from scratch",
+      "description": "Production Summary, highlights and a welcome note. Build the rest yourself.",
+      "file": "blank.json"
+    },
+    {
+      "name": "Basic operations",
+      "description": "Safety, Quality, Production Summary and highlights.",
+      "file": "basic-ops.json"
+    },
+    {
+      "name": "Plant 1730 original layout",
+      "description": "Every built-in section, as the Novus Plant 1730 dashboard started.",
+      "file": "plant-1730.json"
+    }
+  ]
+}

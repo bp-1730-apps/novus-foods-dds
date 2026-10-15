@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script src="plant-config.js"></script>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>DDS Announcements</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500&family=Permanent+Marker&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="novus-styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script src="novus-core.js"></script>
+  <script>
+    // ── Multi-plant config ──────────────────────────────────────────────
+    // Announcements are scoped per plant (see plant_scoped_boards.sql) --
+    // this resolves which plant is active the same way dds-dashboard.html
+    // and hub.html do: URL ?plant=, then the last plant chosen in this
+    // browser, then the plant in plant-config.js (one plant per deployment).
+    // Plant list comes from plant-config.js (one plant per deployment).
+    async function resolveActivePlant(){
+      const config = await window.PLANTS_CONFIG_PROMISE;
+      const plants = config.plants || [];
+      const urlId = new URLSearchParams(location.search).get('plant');
+      let storedId = null;
+      try { storedId = localStorage.getItem('novus_active_plant'); } catch(_) {}
+      const wantId = urlId || storedId;
+      const plant = plants.find(p => p.id === wantId) || plants[0];
+      window.PLANTS_CONFIG = config;
+      window.ACTIVE_PLANT = plant;
+      try { localStorage.setItem('novus_active_plant', plant.id); } catch(_) {}
+      return plant;
+    }
+
+    function applyPlantBranding(plant){
+      document.title = 'DDS Announcements – ' + plant.name;
+      const tag = document.getElementById('plant-tag');
+      if(tag) tag.textContent = plant.shortLabel || plant.name;
+    }
+  </script>
+  <style>
+    .page { padding-top:28px; }
+    .header-flex { display:flex; justify-content:space-between; align-items:center; margin-bottom:36px; }
+    .page-title  { font-size:2rem; font-weight:800; color:var(--ink); letter-spacing:-.03em; }
+    .plant-tag   { font-size:.72rem; font-weight:700; color:var(--green-d); background:var(--green-xll); border:1px solid var(--green-ll); padding:3px 10px; border-radius:20px; margin-left:12px; }
+    .sync-badge  { font-size:.7rem; font-weight:700; color:var(--green); background:var(--green-xll); padding:3px 12px; border-radius:20px; border:1px solid var(--green-ll); margin-left:12px; opacity:0; transition:.3s; }
+    .sync-badge.on { opacity:1; }
+
+    .board-container { display:grid; grid-template-columns:repeat(auto-fill,minmax(390px,1fr)); gap:28px; }
+
+    /* Card */
+    .pretty-card {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:20px; overflow:hidden;
+      box-shadow:var(--shadow-sm);
+      transition:transform .35s var(--spring),box-shadow .35s;
+      position:relative;
+    }
+    .pretty-card:hover { transform:translateY(-5px); box-shadow:var(--shadow-lg); }
+    .pretty-card.theme-dark { color:white; }
+    .pretty-card.theme-dark .card-body  { color:rgba(255,255,255,.92); }
+    .pretty-card.theme-dark .card-footer{ background:rgba(0,0,0,.08); color:rgba(255,255,255,.55); }
+
+    .card-image-wrap { width:100%; height:210px; background:var(--surface2); overflow:hidden; }
+    .card-image-wrap img { width:100%; height:100%; object-fit:cover; transition:.5s; }
+    .pretty-card:hover .card-image-wrap img { transform:scale(1.03); }
+
+    .admin-toolbar { position:absolute; top:10px; left:10px; right:10px; display:flex; gap:5px; opacity:0; transition:.25s; z-index:10; }
+    .pretty-card:hover .admin-toolbar { opacity:1; }
+    .tool-btn {
+      background:rgba(255,255,255,.94); backdrop-filter:blur(8px);
+      border:1px solid rgba(0,0,0,.06); padding:5px 10px; border-radius:7px;
+      font-size:.68rem; font-weight:800; cursor:pointer; color:var(--ink2); transition:.15s;
+    }
+    .tool-btn:hover { background:var(--green); color:white; border-color:var(--green); }
+
+    .card-content { padding:26px 28px 20px; }
+    .badge { background:var(--green-xll); color:var(--green-d); border:1px solid var(--green-ll); padding:3px 10px; border-radius:6px; font-size:.62rem; font-weight:800; text-transform:uppercase; margin-bottom:12px; display:inline-block; letter-spacing:.05em; }
+    .card-body { font-size:1.05rem; min-height:80px; outline:none; white-space:pre-wrap; margin-bottom:20px; font-weight:500; line-height:1.65; color:var(--ink2); }
+    .card-controls { display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--border); padding-top:16px; }
+    .color-dots { display:flex; gap:10px; align-items:center; }
+    .dot { width:22px; height:22px; border-radius:50%; cursor:pointer; border:2px solid var(--border2); transition:.18s; box-shadow:var(--shadow-xs); }
+    .dot:hover { transform:scale(1.25); }
+    .dot.active { border:3.5px solid var(--green) !important; transform:scale(1.12); box-shadow:0 0 0 2px white; }
+    .delete-btn { cursor:pointer; color:var(--border2); font-size:1rem; transition:.18s; }
+    .delete-btn:hover { color:var(--red-l); }
+    .card-footer { padding:11px 28px; font-size:.7rem; color:var(--ink4); font-weight:600; border-top:1px solid var(--border); }
+
+    /* Skeleton */
+    .skeleton-card { height:380px; border-radius:20px; }
+
+    /* Gallery modal */
+    .gallery-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); backdrop-filter:blur(10px); display:none; place-items:center; z-index:2000; padding:20px; }
+    .gallery-overlay.active { display:grid; }
+    .gallery-window { background:var(--surface); width:100%; max-width:820px; padding:32px; border-radius:24px; box-shadow:var(--shadow-lg); }
+    .gallery-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; }
+    .gallery-header h2 { font-size:1.25rem; font-weight:800; color:var(--ink); }
+    .gallery-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:14px; }
+    .gallery-item { width:100%; height:120px; object-fit:cover; border-radius:14px; cursor:pointer; border:3px solid transparent; transition:.18s; }
+    .gallery-item:hover { border-color:var(--green); transform:translateY(-3px); box-shadow:var(--shadow); }
+
+    body:not(.is-admin) .admin-only { display:none !important; }
+  </style>
+</head>
+<body id="main-body">
+
+<!-- ══ COMMAND CENTER HEADER ══════════════════════════════════════════════ -->
+<header class="cmd-header">
+  <div class="cmd-left">
+    <a href="hub.html" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text-3);font-size:.8rem;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);transition:background .1s,color .1s;" onmouseenter="this.style.background='var(--surface-3)';this.style.color='var(--text-1)'" onmouseleave="this.style.background='var(--surface)';this.style.color='var(--text-3)'">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+    Hub
+    </a>
+    <a href="dds-announcements.html">
+      <img data-brand-logo alt="" class="cmd-logo">
+    </a>
+    <div class="cmd-divider"></div>
+        <nav class="cmd-nav">
+      <a class="cmd-tab active" href="dds-announcements.html">Announcements</a>
+      <a class="cmd-tab" href="dds-dashboard.html">Dashboard</a>
+      <a class="cmd-tab" href="weekly-kpis.html">Weekly KPIs</a>
+      <a class="cmd-tab" href="play-call.html">Play Call</a>
+      <a class="cmd-tab" href="data-entry.html">Data Entry</a>
+    </nav>
+  </div>
+  <div class="cmd-right">
+    <!-- ··· More menu -->
+    <div class="cmd-more-wrap" id="more-wrap">
+      <button class="btn-cmd-icon" id="btn-more" onclick="toggleMore(event)" title="More options">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+      </button>
+      <div class="more-dropdown hidden" id="more-dropdown">
+        <div class="sd-group-label">Quick Access</div>
+        <button class="sd-item" onclick="NovusCore.showNeedsAction();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Needs Action
+        </button>
+        <button class="sd-item" onclick="NovusCore.showRules();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Rules of Engagement
+        </button>
+        <button class="sd-item" onclick="NovusCore.showCoreValues();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          Core Values
+        </button>
+        <button class="sd-item" onclick="NovusCore.showHelp();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Help & FAQ
+        </button>
+        <button class="sd-item" onclick="NovusCore.showMaintenance();closeMore()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          Maintenance
+        </button>
+        <div class="sd-divider"></div>
+        <div class="sd-group-label">Session</div>
+        <button class="sd-item sd-item-danger" onclick="NovusCore.logout()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Logout
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+
+<div class="page">
+  <div class="header-flex">
+    <div style="display:flex;align-items:center;">
+      <h2 class="page-title">DDS Announcements</h2>
+      <span class="plant-tag" id="plant-tag"></span>
+      <span class="sync-badge" id="sync-badge">Syncing…</span>
+    </div>
+    <button class="btn btn-primary admin-only" onclick="addItem()">+ Post New Update</button>
+  </div>
+  <div class="board-container" id="board">
+    <div class="skeleton skeleton-card"></div>
+    <div class="skeleton skeleton-card"></div>
+    <div class="skeleton skeleton-card"></div>
+  </div>
+</div>
+
+<div class="gallery-overlay" id="galleryOverlay">
+  <div class="gallery-window">
+    <div class="gallery-header">
+      <h2>Select Cover Image</h2>
+      <button class="btn btn-ghost" onclick="closeGallery()">Close</button>
+    </div>
+    <div class="gallery-grid" id="galleryGrid"></div>
+    <div style="text-align:center;border-top:1px solid var(--border);padding-top:18px;margin-top:8px;">
+      <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Upload Custom Image</button>
+      <input type="file" id="fileInput" style="display:none" accept="image/*" onchange="handleFileUpload(event)">
+    </div>
+  </div>
+</div>
+
+<script>
+  const PROF_PRESETS=[
+    'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80',
+    'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=80',
+    'https://images.unsplash.com/photo-1553413077-190dd305871c?auto=format&fit=crop&w=800&q=80',
+    'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=800&q=80',
+    'https://images.unsplash.com/photo-1565061828021-dd353ba0a1b7?auto=format&fit=crop&w=800&q=80',
+    'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=800&q=80',
+  ];
+  const THEME_COLORS=['#ffffff','#e0f2fe','#dcfce7','#fef3c7','#fee2e2','#f3e8ff','#ccfbf1','#fce7f3'];
+
+  function checkAdmin(){try{const u=JSON.parse(sessionStorage.getItem('dds_user'));return u&&u.role==='admin';}catch(e){return false;}}
+  const isAdmin=checkAdmin();
+  if(isAdmin)document.getElementById('main-body').classList.add('is-admin');
+
+  function showSync(){document.getElementById('sync-badge').classList.add('on');}
+  function hideSync(){setTimeout(()=>document.getElementById('sync-badge').classList.remove('on'),900);}
+  function parseStyle(s){const p=(s||'').split('|');return{bg:p[0]||'#ffffff',align:p[1]||'left',theme:p[2]||'light'};}
+
+  async function loadData(){
+    const{data,error}=await NovusDB.announcements.getAll(window.ACTIVE_PLANT&&window.ACTIVE_PLANT.id);
+    if(error){console.error(error);return;}
+    const container=document.getElementById('board');
+    if(!data.length){container.innerHTML='<p style="color:var(--ink4);padding:20px;">No announcements yet.</p>';return;}
+    container.innerHTML=data.map(item=>{
+      const style=parseStyle(item.color);
+      return`<div class="pretty-card theme-${style.theme}" id="card-${item.id}" style="background-color:${style.bg}" data-raw-style="${item.color}">
+        <div class="admin-toolbar admin-only">
+          <button class="tool-btn" onclick="openGallery('${item.id}')">🖼️ Image</button>
+          <button class="tool-btn" onclick="updateStyle('${item.id}','align','left')">Left</button>
+          <button class="tool-btn" onclick="updateStyle('${item.id}','align','center')">Center</button>
+          <button class="tool-btn" onclick="updateStyle('${item.id}','theme','${style.theme==='light'?'dark':'light'}')">🌓 Mode</button>
+        </div>
+        <div class="card-image-wrap"><img src="${item.image||PROF_PRESETS[0]}" id="img-${item.id}" alt="cover"></div>
+        <div class="card-content">
+          <span class="badge">Announcement ${item.number}</span>
+          <div class="card-body" id="body-${item.id}" style="text-align:${style.align}" contenteditable="${isAdmin}" onblur="updateField('${item.id}','text',this.innerText.trim())">${item.text}</div>
+          <div class="card-controls">
+            <div class="color-dots admin-only">
+              ${THEME_COLORS.map(c=>`<div class="dot${style.bg.toLowerCase()===c.toLowerCase()?' active':''}" style="background:${c}" data-color="${c}" onclick="updateStyle('${item.id}','bg','${c}')"></div>`).join('')}
+            </div>
+            ${isAdmin?`<span class="delete-btn" onclick="deleteItem('${item.id}')">🗑️</span>`:''}
+          </div>
+        </div>
+        <div class="card-footer">${item.date}</div>
+      </div>`;
+    }).join('');
+  }
+
+  async function updateField(id,field,value){
+    if(!isAdmin)return; showSync();
+    await NovusDB.announcements.updateField(id,field,value);
+    hideSync();
+  }
+  async function updateStyle(id,prop,val){
+    if(!isAdmin)return;
+    const card=document.getElementById(`card-${id}`),body=document.getElementById(`body-${id}`);
+    const style=parseStyle(card.getAttribute('data-raw-style'));
+    style[prop]=val;
+    if(prop==='bg'){card.style.backgroundColor=val;card.querySelectorAll('.dot').forEach(d=>d.classList.toggle('active',d.getAttribute('data-color')===val));}
+    if(prop==='align')body.style.textAlign=val;
+    if(prop==='theme'){card.classList.remove('theme-light','theme-dark');card.classList.add(`theme-${val}`);}
+    const newStr=`${style.bg}|${style.align}|${style.theme}`;
+    card.setAttribute('data-raw-style',newStr);
+    await updateField(id,'color',newStr);
+  }
+  async function addItem(){
+    if(!isAdmin)return;
+    if(!window.ACTIVE_PLANT){alert('No active plant resolved yet — reload and try again.');return;}
+    showSync();
+    const newItem={id:Date.now().toString(),plant_id:window.ACTIVE_PLANT.id,number:document.querySelectorAll('.pretty-card').length+1,text:'New update — click to edit this message…',date:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),image:PROF_PRESETS[0],color:'#ffffff|left|light'};
+    await NovusDB.announcements.add(newItem);
+    hideSync();
+  }
+  async function deleteItem(id){
+    if(!confirm('Delete this announcement?'))return; showSync();
+    await NovusDB.announcements.delete(id);
+    hideSync();
+  }
+  let activeCardId=null;
+  function openGallery(id){activeCardId=id;document.getElementById('galleryGrid').innerHTML=PROF_PRESETS.map(url=>`<img src="${url}" class="gallery-item" onclick="selectPreset('${url}')" alt="preset">`).join('');document.getElementById('galleryOverlay').classList.add('active');}
+  function closeGallery(){document.getElementById('galleryOverlay').classList.remove('active');}
+  async function selectPreset(url){document.getElementById(`img-${activeCardId}`).src=url;await updateField(activeCardId,'image',url);closeGallery();}
+  function handleFileUpload(e){const file=e.target.files[0];const reader=new FileReader();reader.onload=async ev=>{document.getElementById(`img-${activeCardId}`).src=ev.target.result;await updateField(activeCardId,'image',ev.target.result);closeGallery();};reader.readAsDataURL(file);}
+
+  window.onload=async()=>{
+    NovusCore.requireAuth();
+    const plant=await resolveActivePlant();
+    applyPlantBranding(plant);
+    loadData();
+    NovusDB.announcements.subscribe(()=>loadData());
+  };
+</script>
+<script src="novus-interactions.js" defer></script>
+</body>
+</html>

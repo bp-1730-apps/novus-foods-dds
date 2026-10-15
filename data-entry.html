@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script src="plant-config.js"></script>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Data Entry</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500&family=Permanent+Marker&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="novus-styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script src="novus-core.js"></script>
+  <script>
+    // ═════════════════════════════════════════════════════════════════════
+    //  SETTINGS
+    // ═════════════════════════════════════════════════════════════════════
+    // Who may add/remove columns: 'admin' (role = admin) or 'all' (any signed-in
+    // user). Removing a column also removes its dashboard widgets.
+    const WHO_CAN_MANAGE_COLUMNS = 'admin';
+
+    // One tab per workbook sheet (all_department_data_2026.xlsx): a row per date
+    // (and per line / city / bin / item where the sheet has one) and a column per
+    // field, in the workbook's own order. Calculated columns (Completion %, Yield,
+    // Attainment, Fill Rate %, Variance ...) work out automatically from the
+    // other cells, like the Excel formulas, and are saved with each row.
+    //
+    // Column tuples: [label, type, unit?, options?]
+    //   types: number | percent | text | select | calc
+    //   calc : options = [expression, 'percent'?]. The expression uses column
+    //          names as snake_case keys, + - * / ( ) and abs( ).
+    const YN = ['YES', 'NO', 'DNR', 'NA'];
+    // Cities / sites a plant tracks separately (plant-config.js "cities"). None = departments get a single row.
+    const CITY_LIST = (window.PLANT_CONFIG.cities || []).filter(c => c && c.name);
+    const CITY_DISPLAY = {}; CITY_LIST.forEach(c => { if (c.display) CITY_DISPLAY[c.name] = c.display; });
+    const CITIES = CITY_LIST.length ? { field: 'city', label: 'City', values: CITY_LIST.map(c => c.name) } : null;
+    const BASE_DEPARTMENTS = [
+      { name: 'Inventory Control', panel: 'panel-inventory', dim: CITIES,
+        seed: [['Planned Cycle Counts','number'],['Counts Completed','number'],['Completion %','calc','',['counts_completed / planned_cycle_counts','percent']],['Variants','number'],['Bin Accuracy','percent'],['Critical Items','number'],['Bins Counted','number'],['Materials Counted','number'],['Notes','text'],['Near Miss','number']] },
+      { name: 'Production', panel: 'panel-production',
+        dim: { field: 'line', label: 'Line', values: 'LINES' },
+        seed: [['OEE','percent'],['Expected Pounds','number','lbs'],['Actual Pounds','number','lbs'],['Yield','calc','',['actual_pounds / expected_pounds','percent']],['Attainment','calc','',['actual_pounds / expected_pounds','percent']],['Start Up','select','',YN],['CIL','select','',YN],['Downtime','number','min'],['Mechanical Downtime Drivers','text'],['Material Downtime Drivers','text'],['Near Miss','number']] },
+      // Warehouse: the Cerritos row IS the Walmart business. The dashboard's
+      // "Walmart Fill Rate %" reads the Cerritos row's Fill Rate %, so this row is
+      // labelled Walmart here and its Fill Rate % is what feeds that dashboard tile.
+      // (Buena Park's row feeds "Overall Fill Rate %".)
+      { name: 'Warehouse', panel: 'panel-warehouse',
+        dim: CITIES ? Object.assign({}, CITIES, { display: CITY_DISPLAY }) : null,
+        seed: [['Inbound Expected','number'],['Inbound Received','number'],['Inbound Expected STOs','number'],['Inbound Received STOs','number'],['Number of cases scheduled to ship','number'],['Number of loads','number'],['Number of cases shipped','number'],['Fill Rate %','calc','',['number_of_cases_shipped / number_of_cases_scheduled_to_ship','percent']],['CPMH','number'],['Near Miss','number'],['Comments','text']] },
+      { name: 'QA', panel: 'panel-quality', dim: null,
+        seed: [['Holds','number'],['Holds/COA','number'],['PEM %','number'],['CPM','number'],['Number of Complaints','number'],['Pre-Op','percent'],['MSS','percent'],['Notes','text'],['Near Miss','number']] },
+      { name: 'SAP', panel: 'panel-sap', dim: null,
+        seed: [['COGI','number'],['Variances','number','$'],['Open Process Orders','number'],['TECO','number'],['Receiving Tasks','number'],['Outbound Tasks','number'],['Warehouse Tasks','number'],['Notes','text'],['Near Miss','number']] },
+      { name: 'Maintenance', panel: 'panel-production', dim: null,
+        seed: [['Work Orders Completed','number'],['Work Orders Planned','number'],['PM Completion','number'],['PM Priority Line Completion','number'],['Code Red','number'],['Code Yellow','number'],['Special Projects','number'],['Near Miss','number']] },
+      { name: 'Finance', panel: 'panel-costs', dim: null,
+        seed: [['$/Pound - Direct','number','$'],['$/Pound - Indirect','number','$'],['OT - QA','number','hrs'],['OT - Production','number','hrs'],['OT - Finance','number','hrs'],['OT - Warehouse','number','hrs'],['OT - HR | Training','number','hrs'],['OT - SAP','number','hrs'],['OT - Maintenance','number','hrs'],['Total Overtime','number','hrs'],['Conversion Cost','number','$'],['Target Conversion Cost','number','$'],['Pounds/hour - Direct','number'],['Pounds/hour - Indirect','number'],['Target Pounds','number','lbs'],['Pounds Produced','number','lbs'],['Disposal Quantity','number'],['Disposal Cost','number','$'],['Near Miss','number']] },
+      { name: 'HR | Training', panel: 'panel-hr', dim: null,
+        seed: [['Trainings Complete','number'],['Number of Meal Penalties','number'],['Near Miss Reports','number'],['Safety Audits','number'],['Days Without Incident','number'],['Head Count - Direct','number'],['Head Count - Indirect','number']] },
+    ];
+    // Dashboard panels a column can be pinned to (same ids as dds-dashboard.html).
+    const DASH_PANELS = [
+      ['panel-safety','Safety'],['panel-quality','Quality'],['panel-production','Production Summary'],
+      ['panel-sanitation','Sanitation'],['panel-costs','Costs'],['panel-hr','HR | Training'],
+      ['panel-sap','SAP Metrics'],['panel-warehouse','Warehouse'],['panel-inventory','Inventory Control'],
+      ['panel-highlights','Level 1 DDS Highlights'],
+    ];
+
+    // ── Multi-plant resolution (same logic as dds-announcements.html) ──
+    // Plant list comes from plant-config.js (one plant per deployment).
+    async function resolveActivePlant() {
+      const config = await window.PLANTS_CONFIG_PROMISE;
+      const plants = config.plants || [];
+      const urlId = new URLSearchParams(location.search).get('plant');
+      let storedId = null;
+      try { storedId = localStorage.getItem('novus_active_plant'); } catch (_) {}
+      const plant = plants.find(p => p.id === (urlId || storedId)) || plants[0];
+      window.ACTIVE_PLANT = plant;
+      try { localStorage.setItem('novus_active_plant', plant.id); } catch (_) {}
+      return plant;
+    }
+  </script>
+  <style>
+    .page { padding-top:24px; padding-bottom:60px; }
+    .page-title { font-size:1.75rem; font-weight:800; color:var(--ink); letter-spacing:-.03em; }
+    .plant-tag { font-size:.72rem; font-weight:700; color:var(--green-d); background:var(--green-xll); border:1px solid var(--green-ll); padding:3px 10px; border-radius:20px; margin-left:12px; }
+    .dept-tabs { display:flex; gap:6px; flex-wrap:wrap; margin:18px 0 14px; border-bottom:1.5px solid var(--border); }
+    .dept-tab { background:none; border:none; padding:9px 16px; font:inherit; font-size:.82rem; font-weight:700; color:var(--ink3); cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-1.5px; }
+    .dept-tab:hover { color:var(--ink); }
+    .dept-tab.active { color:var(--green-d); border-bottom-color:var(--green); }
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:18px; overflow:hidden; box-shadow:var(--shadow-sm); }
+    .panel-header { background:linear-gradient(135deg,var(--green-xll),var(--green-ll)); border-bottom:1.5px solid #a7f3d0; padding:11px 18px; font-weight:800; font-size:.88rem; color:var(--green-d); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    .panel-body { padding:18px; }
+    .datebar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .datebar input[type=date] { width:auto; }
+    .datebar .btn { padding:6px 12px; }
+    .status-chip { font-size:.7rem; font-weight:700; padding:3px 10px; border-radius:20px; background:var(--surface2); color:var(--ink3); border:1px solid var(--border); }
+    .status-chip.existing { background:var(--green-xll); color:var(--green-d); border-color:var(--green-ll); }
+
+    /* Spreadsheet grid */
+    .grid-wrap { overflow:auto; max-height:70vh; border:1px solid var(--border); border-radius:var(--radius-sm); }
+    table.sheet { border-collapse:separate; border-spacing:0; width:max-content; min-width:100%; font-size:.8rem; }
+    table.sheet th { position:sticky; top:0; z-index:2; background:var(--surface2); border-bottom:1.5px solid var(--border2, var(--border)); border-right:1px solid var(--border); padding:8px 10px; text-align:left; font-weight:700; color:var(--ink2, var(--ink)); white-space:nowrap; }
+    table.sheet td { border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:0; background:var(--surface); }
+    table.sheet td.dim, table.sheet td.dt { padding:7px 12px; font-weight:700; white-space:nowrap; background:var(--surface2); position:sticky; left:0; z-index:1; }
+    table.sheet th.dim { left:0; z-index:3; }
+    table.sheet td input, table.sheet td select { border:none; background:transparent; border-radius:0; width:100%; min-width:110px; padding:8px 10px; font:inherit; box-shadow:none; margin:0; }
+    table.sheet td.text input { min-width:200px; }
+    table.sheet td input:focus, table.sheet td select:focus { outline:2px solid var(--green); outline-offset:-2px; background:var(--green-xll); }
+    table.sheet td.calc { padding:8px 12px; text-align:right; background:var(--surface2); color:var(--ink2, var(--ink)); font-family:'JetBrains Mono',monospace; font-size:.76rem; min-width:90px; }
+    table.sheet td.changed { background:#fffbeb; }
+    table.sheet input[type=number]::-webkit-outer-spin-button, table.sheet input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+    table.sheet input[type=number] { -moz-appearance:textfield; text-align:right; }
+    table.hist td { padding:7px 10px; white-space:nowrap; }
+    table.hist tbody tr { cursor:pointer; }
+    table.hist tbody tr:hover td { background:var(--green-xll); }
+    .unit { color:var(--ink4); font-weight:500; }
+    .form-actions { display:flex; align-items:center; gap:14px; margin-top:14px; flex-wrap:wrap; }
+    .msg { font-size:.8rem; font-weight:700; } .msg.ok { color:var(--green); } .msg.err { color:var(--red-l); }
+    .hint { font-size:.74rem; color:var(--ink3); }
+    .empty { text-align:center; padding:28px; color:var(--ink4); }
+    .hidden { display:none !important; }
+    .dept-add { color:var(--green-d); border:1.5px dashed var(--green-ll); border-radius:8px; margin:0 0 6px 6px; padding:5px 12px; background:var(--green-xll); }
+    #add-tab { max-width:640px; }
+    .restore-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+    .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
+    .section-label { font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--ink3); margin:18px 0 8px; }
+    .checkline { display:flex; align-items:center; gap:8px; font-size:.82rem; }
+    .metric-row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid var(--border); }
+    .metric-row:last-child { border-bottom:none; }
+    .metric-name { font-weight:700; color:var(--ink); } .metric-meta { font-size:.72rem; color:var(--ink3); }
+    .btn-remove { background:rgba(220,38,38,.08); color:var(--red-l); border:1px solid rgba(220,38,38,.25); border-radius:6px; padding:4px 12px; font-size:.72rem; font-weight:700; cursor:pointer; }
+    .btn-remove:hover { background:rgba(220,38,38,.18); }
+    details.panel > summary { cursor:pointer; list-style:none; }
+    details.panel > summary::-webkit-details-marker { display:none; }
+  </style>
+</head>
+<body id="main-body">
+<header class="cmd-header">
+  <div class="cmd-left">
+    <a href="hub.html"><img data-brand-logo alt="" class="cmd-logo"></a>
+    <div class="cmd-divider"></div>
+    <nav class="cmd-nav">
+      <a class="cmd-tab" href="dds-announcements.html">Announcements</a>
+      <a class="cmd-tab" href="dds-dashboard.html">Dashboard</a>
+      <a class="cmd-tab" href="weekly-kpis.html">Weekly KPIs</a>
+      <a class="cmd-tab" href="play-call.html">Play Call</a>
+      <a class="cmd-tab" href="data-entry.html">Data Entry</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <h1 class="page-title">Data Entry<span class="plant-tag" id="plant-tag"></span></h1>
+  <div class="dept-tabs" id="dept-tabs" role="tablist"></div>
+
+  <!-- Add a tab (admins) -->
+  <div class="panel hidden" id="add-tab">
+    <div class="panel-header"><span>Add a new tab</span><span class="hint">A tab is one sheet, like the QA or Warehouse tabs</span></div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="form-group"><label for="t-name">Tab name *</label><input id="t-name" type="text" maxlength="40" placeholder="e.g. Sanitation"/></div>
+        <div class="form-group"><label for="t-rows">Each day has…</label>
+          <select id="t-rows"><option value="none">One row</option><option value="line">A row for each production line</option><option value="city" id="opt-city">A row for each city</option><option value="custom">A row for each item in my own list</option></select></div>
+        <div class="form-group hidden" id="t-custom-wrap"><label for="t-list">My list (separate with commas)</label><input id="t-list" type="text" placeholder="e.g. Room 1, Room 2, Room 3"/>
+          <label for="t-rowlabel" style="margin-top:6px;">What are they called?</label><input id="t-rowlabel" type="text" maxlength="30" placeholder="e.g. Room"/></div>
+      </div>
+      <div class="form-actions"><button type="button" class="btn btn-primary" id="t-add-btn">Add Tab</button><span class="msg" id="t-msg" role="status"></span></div>
+    </div>
+  </div>
+
+  <!-- ── Entry grid ──────────────────────────────────────────── -->
+  <div class="panel">
+    <div class="panel-header">
+      <span id="entry-title">Enter data</span>
+      <div class="datebar">
+        <button type="button" class="btn" id="d-prev" title="Previous day">‹</button>
+        <input type="date" id="entry-date"/>
+        <button type="button" class="btn" id="d-next" title="Next day">›</button>
+        <button type="button" class="btn" id="d-today">Today</button>
+        <span class="status-chip" id="date-status"></span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="grid-wrap"><table class="sheet" id="entry-grid"></table></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" id="save-btn">Save</button>
+        <span class="msg" id="save-msg" role="status"></span>
+        <span class="hint">Tab / arrows move across · Enter moves down · edited cells turn yellow until saved</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Manage columns ──────────────────────────────────────── -->
+  <details class="panel" id="manage-panel">
+    <summary class="panel-header"><span>Manage columns for <span id="manage-dept"></span></span><span class="hint">Add or remove metrics · changes apply to this department's grid and the dashboard</span></summary>
+    <div class="panel-body">
+      <div id="manage-locked" class="hint hidden">Only admins can add or remove columns.</div>
+      <div id="manage-body">
+        <div class="form-actions" style="margin:0 0 14px;">
+          <button type="button" class="btn-remove" id="tab-remove-btn">Remove this tab</button>
+          <span class="hint">Hides the tab for everyone. Everything saved is kept, and you can bring the tab back below.</span>
+        </div>
+        <div class="restore-row hidden" id="restore-row" style="margin:-4px 0 14px;"><span class="hint">Removed tabs:</span><select id="restore-sel"></select><button type="button" class="btn" id="restore-btn">Bring back</button></div>
+        <div class="form-grid">
+          <div class="form-group"><label for="m-label">Column name *</label><input id="m-label" type="text" maxlength="80" placeholder="e.g. Pounds Packed"/></div>
+          <div class="form-group"><label for="m-type">Type</label>
+            <select id="m-type"><option value="number">Number</option><option value="percent">Percent (type 95 for 95%)</option><option value="text">Text</option><option value="select">Dropdown</option><option value="calc">Calculated (formula)</option></select></div>
+          <div class="form-group"><label for="m-unit">Unit (optional)</label><input id="m-unit" type="text" maxlength="20" placeholder="lbs, min, $…"/></div>
+          <div class="form-group hidden" id="m-calc-wrap"><label for="m-calc">Formula</label><input id="m-calc" type="text" placeholder="e.g. Actual Pounds / Expected Pounds"/><label class="checkline" style="margin-top:6px;"><input id="m-calc-pct" type="checkbox"/> Show as a percent</label></div>
+          <div class="form-group hidden" id="m-options-wrap"><label for="m-options">Dropdown choices</label><input id="m-options" type="text" placeholder="Comma-separated: A, B, C"/></div>
+        </div>
+        <div class="section-label">Dashboard</div>
+        <label class="checkline"><input id="m-dash" type="checkbox"/> Also add a widget for this column on the dashboard (number / percent only)</label>
+        <div class="form-grid hidden" id="m-dash-opts" style="margin-top:12px;">
+          <div class="form-group"><label for="m-panel">Dashboard panel</label><select id="m-panel"></select></div>
+          <div class="form-group"><label for="m-wtype">Display as</label>
+            <select id="m-wtype"><option value="metric">Metric card</option><option value="line">Line chart</option><option value="area">Area chart</option><option value="bar">Bar chart</option></select></div>
+          <div class="form-group" id="m-agg-wrap"><label for="m-agg">Card shows</label>
+            <select id="m-agg"><option value="latest">Latest value</option><option value="sum">Sum (last 30 days)</option><option value="avg">Average (last 30 days)</option></select></div>
+          <div class="form-group"><label for="m-target">Target (optional)</label><input id="m-target" type="number" step="any"/></div>
+          <div class="form-group"><label for="m-target-dir">Target is</label>
+            <select id="m-target-dir"><option value="gte">At least (≥)</option><option value="lte">At most (≤)</option></select></div>
+        </div>
+        <div class="hint" style="margin-top:8px;">Every column's values flow into the matching dashboard sheet automatically, so it is also selectable in the dashboard's "Manage Custom Widgets".</div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="m-add-btn">Add Column</button>
+          <span class="msg" id="m-msg" role="status"></span>
+        </div>
+        <div class="section-label">Current columns</div>
+        <div id="metric-list"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+  </details>
+
+  <!-- ── History grid ────────────────────────────────────────── -->
+  <div class="panel">
+    <div class="panel-header"><span>Recent entries</span><span class="hint">Click a row to open that day in the grid above</span></div>
+    <div class="grid-wrap"><table class="sheet hist" id="hist-grid"><tbody><tr><td class="empty">Loading…</td></tr></tbody></table></div>
+  </div>
+</div>
+
+<script>
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const todayStr = () => new Date().toLocaleDateString('en-CA');
+  const slug = l => (String(l).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60)) || '';
+  const canManage = () => WHO_CAN_MANAGE_COLUMNS === 'all' || NovusCore.isAdmin();
+  const withUnit = m => esc(m.label) + (m.unit ? ` <span class="unit">(${esc(m.unit)})</span>` : '');
+  const _msgTimers = {};
+  // Shows a message; 'ok' messages fade after a few seconds without clobbering newer ones.
+  const setMsg = (id, text, cls) => {
+    const m = document.getElementById(id); clearTimeout(_msgTimers[id]);
+    m.textContent = text; m.className = 'msg ' + (cls || '');
+    if (cls === 'ok') _msgTimers[id] = setTimeout(() => { m.textContent = ''; m.className = 'msg'; }, 4000);
+  };
+
+  let ALL_DEPTS = BASE_DEPARTMENTS.slice();   // built-in tabs minus removed ones, plus custom tabs
+  let DEPT_ROWS = [];                          // rows of entry_departments for this plant
+  let DEPT = ALL_DEPTS[0];
+  let METRICS = [];          // active columns for the current department
+  let ROWS = [];             // grid rows: [{ key:'' | 'Buena Park' ...}]
+  let EXISTING = {};         // row_key -> saved data object for the loaded date
+  let DIRTY = false;
+
+  // percent columns are typed as 95 and stored as 0.95 (same as the workbook)
+  const toStored = (m, raw) => m.type === 'percent' ? Number((raw / 100).toFixed(6)) : raw;
+  const calcPct  = m => m.type === 'calc' && (m.options || [])[1] === 'percent';
+  // What a stored value looks like in a grid cell / table.
+  const toShown  = (m, v) => {
+    if (v === '' || v == null) return '';
+    if (m.type === 'percent') return Number((Number(v) * 100).toFixed(4));
+    if (m.type === 'calc') return calcPct(m) ? Number((Number(v) * 100).toFixed(1)) + '%' : Number(Number(v).toFixed(4));
+    return v;
+  };
+
+  // ── Calculated columns (the workbook's formulas) ──
+  // expr uses column keys, numbers, + - * / ( ) and abs(). Evaluated without eval:
+  // keys are replaced by numbers, then the result must contain only math characters.
+  function calcValue(m, getVal) {
+    const expr = (m.options || [])[0]; if (!expr) return null;
+    let bad = false;
+    const s = String(expr).replace(/[a-z_][a-z0-9_]*/g, id => {
+      if (id === 'abs') return 'ABS';
+      const v = getVal(id); if (v == null || !Number.isFinite(v)) { bad = true; return '0'; }
+      return '(' + v + ')';
+    });
+    if (bad || !/^[0-9eE+\-*/().\sABS]+$/.test(s)) return null;
+    try { const r = Function('ABS', '"use strict";return (' + s + ')')(Math.abs); return Number.isFinite(r) ? Number(r.toFixed(6)) : null; }
+    catch (_) { return null; }
+  }
+  // Values of one grid row (stored units), calcs evaluated in column order.
+  function rowStored(ri) {
+    const vals = {};
+    for (const m of METRICS) {
+      if (m.type === 'calc') { const c = calcValue(m, k => vals[k]); if (c != null) vals[m.key] = c; continue; }
+      const el = document.querySelector(`#entry-grid [data-ri="${ri}"][data-key="${CSS.escape(m.key)}"]`);
+      const t = el ? el.value.trim() : '';
+      if (t === '') continue;
+      if (m.type === 'number' || m.type === 'percent') { const n = Number(t); if (Number.isFinite(n)) vals[m.key] = toStored(m, n); }
+      else vals[m.key] = t;
+    }
+    return vals;
+  }
+  function recalcRow(ri) {
+    const vals = rowStored(ri);
+    METRICS.filter(m => m.type === 'calc').forEach(m => {
+      const el = document.querySelector(`#entry-grid [data-ri="${ri}"][data-calc="${CSS.escape(m.key)}"]`);
+      if (el) el.textContent = vals[m.key] != null ? toShown(m, vals[m.key]) : '—';
+    });
+  }
+  // Turn "Actual Pounds / Expected Pounds" (column names) into key form, or null if invalid.
+  function labelsToKeys(text) {
+    let out = ' ' + text.trim() + ' ';
+    [...METRICS].sort((a, b) => b.label.length - a.label.length).forEach(m => {
+      const esc_ = m.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      out = out.replace(new RegExp('(?<![A-Za-z0-9_])' + esc_ + '(?![A-Za-z0-9_])', 'gi'), ' ' + m.key + ' ');
+    });
+    out = out.replace(/\s+/g, ' ').trim();
+    const ids = out.match(/[a-z_][a-z0-9_]*/g) || [];
+    if (!ids.length || ids.some(id => id !== 'abs' && !METRICS.some(m => m.key === id))) return null;
+    if (!/^[a-z0-9_+\-*/().\s]+$/.test(out)) return null;
+    return out;
+  }
+
+  // Label shown for a row key (the stored key stays the plain city so existing data and the dashboard match).
+  const rowLabel = k => (DEPT.dim && DEPT.dim.display && DEPT.dim.display[k]) || k;
+
+  function dimValues() {
+    if (!DEPT.dim) return [''];
+    const v = DEPT.dim.values === 'LINES' ? ((window.ACTIVE_PLANT && window.ACTIVE_PLANT.lines) || []) : DEPT.dim.values;
+    return v.length ? v : [''];
+  }
+
+  // ── Tabs (departments): built-in + custom, minus removed ─────────────
+  function customDeptFromRow(r) {
+    let dim = null;
+    if (r.row_mode === 'line') dim = { field: 'line', label: 'Line', values: 'LINES' };
+    else if (r.row_mode === 'city' && CITIES) dim = CITIES;
+    else if (r.row_mode === 'custom') dim = { field: 'row', label: r.row_label || 'Row', values: r.row_values || [] };
+    return { name: r.name, panel: r.panel || 'panel-production', dim, seed: [], custom: true };
+  }
+  function buildDepartments() {
+    const byName = {}; DEPT_ROWS.forEach(r => { byName[r.name.toLowerCase()] = r; });
+    const base = BASE_DEPARTMENTS.filter(d => !(byName[d.name.toLowerCase()] && byName[d.name.toLowerCase()].active === false));
+    const baseNames = new Set(BASE_DEPARTMENTS.map(d => d.name.toLowerCase()));
+    const custom = DEPT_ROWS.filter(r => r.active && !baseNames.has(r.name.toLowerCase())).map(customDeptFromRow);
+    ALL_DEPTS = base.concat(custom);
+  }
+  async function loadDepartments() {
+    const { data, error } = await NovusDB.departments.getAll(window.ACTIVE_PLANT.id);
+    if (error) { console.warn('Could not load tab settings (run data_entries.sql?):', error.message); DEPT_ROWS = []; }
+    else DEPT_ROWS = data || [];
+    buildDepartments();
+    // list of removed tabs for "Bring back"
+    const removed = DEPT_ROWS.filter(r => r.active === false).map(r => r.name);
+    const sel = document.getElementById('restore-sel');
+    sel.innerHTML = removed.map(n => `<option>${esc(n)}</option>`).join('');
+    document.getElementById('restore-row').classList.toggle('hidden', !removed.length || !canManage());
+  }
+  async function addTab() {
+    if (!canManage()) return;
+    const name = document.getElementById('t-name').value.trim();
+    const mode = document.getElementById('t-rows').value;
+    if (!name) { setMsg('t-msg', 'Give the tab a name.', 'err'); return; }
+    if (ALL_DEPTS.some(d => d.name.toLowerCase() === name.toLowerCase())) { setMsg('t-msg', 'There is already a tab with that name.', 'err'); return; }
+    const existing = DEPT_ROWS.find(r => r.name.toLowerCase() === name.toLowerCase());
+    let rowLabel = '', rowValues = [];
+    if (mode === 'custom') {
+      rowValues = document.getElementById('t-list').value.split(/[,\n;]/).map(x => x.trim()).filter(Boolean);
+      rowLabel = document.getElementById('t-rowlabel').value.trim() || 'Row';
+      if (!rowValues.length) { setMsg('t-msg', 'Type at least one item in your list.', 'err'); return; }
+    }
+    const btn = document.getElementById('t-add-btn'); btn.disabled = true; setMsg('t-msg', 'Adding…');
+    const { error } = await NovusDB.departments.upsert({
+      plant_id: window.ACTIVE_PLANT.id, name: existing ? existing.name : name, row_mode: mode, row_label: rowLabel, row_values: rowValues,
+      panel: 'panel-production', active: true, sort: DEPT_ROWS.length + 1, created_by: (NovusCore.getUser() || {}).username || 'unknown' });
+    btn.disabled = false;
+    if (error) { console.error(error); setMsg('t-msg', 'Could not add: ' + error.message, 'err'); return; }
+    ['t-name', 't-list', 't-rowlabel'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('add-tab').classList.add('hidden'); setMsg('t-msg', '');
+    await loadDepartments(); await selectDept(existing ? existing.name : name);
+    setMsg('m-msg', 'Tab added — now add its columns below.', 'ok');
+    document.getElementById('manage-panel').open = true;
+  }
+  async function removeTab() {
+    if (!canManage() || !DEPT) return;
+    if (!confirm(`Remove the "${DEPT.name}" tab?\n\nIt disappears for everyone. Everything already saved is kept, and you can bring the tab back any time.`)) return;
+    const user = (NovusCore.getUser() || {}).username || 'unknown';
+    const res = DEPT_ROWS.find(r => r.name.toLowerCase() === DEPT.name.toLowerCase())
+      ? await NovusDB.departments.setActive(window.ACTIVE_PLANT.id, DEPT.name, false)
+      : await NovusDB.departments.upsert({ plant_id: window.ACTIVE_PLANT.id, name: DEPT.name, active: false, created_by: user });
+    if (res.error) { console.error(res.error); setMsg('m-msg', 'Could not remove: ' + res.error.message, 'err'); return; }
+    DIRTY = false; await loadDepartments(); await selectDept(ALL_DEPTS[0] && ALL_DEPTS[0].name);
+  }
+  async function restoreTab() {
+    const name = document.getElementById('restore-sel').value; if (!name) return;
+    const { error } = await NovusDB.departments.setActive(window.ACTIVE_PLANT.id, name, true);
+    if (error) { console.error(error); setMsg('m-msg', 'Could not bring it back: ' + error.message, 'err'); return; }
+    await loadDepartments(); await selectDept(name);
+  }
+
+  // ── Department tabs ──────────────────────────────────────────────────
+  function renderTabs() {
+    const box = document.getElementById('dept-tabs');
+    box.innerHTML = ALL_DEPTS.map(d =>
+      `<button type="button" class="dept-tab${d === DEPT ? ' active' : ''}" role="tab" data-dept="${esc(d.name)}">${esc(d.name)}</button>`).join('') +
+      (canManage() ? `<button type="button" class="dept-tab dept-add" id="dept-add-btn" title="Add a new tab">+ Add tab</button>` : '');
+    const addBtn = document.getElementById('dept-add-btn');
+    if (addBtn) addBtn.addEventListener('click', () => { const f = document.getElementById('add-tab'); f.classList.toggle('hidden'); if (!f.classList.contains('hidden')) document.getElementById('t-name').focus(); });
+    box.querySelectorAll('.dept-tab[data-dept]').forEach(b => b.addEventListener('click', () => {
+      if (DIRTY && !confirm('You have unsaved changes on this tab. Switch anyway?')) return;
+      selectDept(b.dataset.dept);
+    }));
+  }
+
+  async function selectDept(name) {
+    DEPT = ALL_DEPTS.find(d => d.name === name) || ALL_DEPTS[0];
+    if (!DEPT) { renderTabs(); document.getElementById('entry-grid').innerHTML = '<tbody><tr><td class="empty">No tabs. Use "+ Add tab" to create one.</td></tr></tbody>'; return; }
+    try { localStorage.setItem('novus_entry_dept', DEPT.name); } catch (_) {}
+    document.getElementById('manage-dept').textContent = DEPT.name;
+    document.getElementById('entry-title').textContent = DEPT.name;
+    document.getElementById('m-panel').value = DEPT.panel;
+    DIRTY = false; renderTabs();
+    await loadMetrics();
+    await loadDate();
+    loadHistory();
+  }
+
+  // ── Columns (metrics) ────────────────────────────────────────────────
+  async function loadMetrics() {
+    let res = await NovusDB.metrics.getAll(window.ACTIVE_PLANT.id);
+    if (res.error) { console.error(res.error); document.getElementById('metric-list').innerHTML = `<div class="empty">Could not load columns. Has data_entries.sql been run?</div>`; METRICS = []; return; }
+    const mine = (res.data || []).filter(r => r.form_type === DEPT.name);
+    // First visit to a department: create the workbook's columns automatically. After
+    // that, admins also get any workbook column that was never created (removed ones
+    // stay removed because their inactive row still exists).
+    const have = new Set(mine.map(r => r.key));
+    const missing = DEPT.seed.map((s, i) => ({ s, i })).filter(({ s }) => !have.has(slug(s[0])));
+    if (missing.length && NovusCore.canEditData() && (!mine.length || canManage())) {
+      const user = (NovusCore.getUser() || {}).username || 'unknown';
+      const { error } = await NovusDB.metrics.upsertMany(missing.map(({ s, i }) => ({
+        plant_id: window.ACTIVE_PLANT.id, form_type: DEPT.name, key: slug(s[0]), label: s[0], type: s[1],
+        unit: s[2] || '', options: s[3] || [], sort: i, created_by: user })));
+      if (error) console.error('Could not create workbook columns:', error);
+      else res = await NovusDB.metrics.getAll(window.ACTIVE_PLANT.id);
+    }
+    METRICS = (res.data || []).filter(r => r.form_type === DEPT.name && r.active)
+      .sort((a, b) => (a.sort - b.sort) || String(a.created_at).localeCompare(String(b.created_at)));
+    renderMetricList();
+  }
+
+  function renderMetricList() {
+    const manage = canManage();
+    const box = document.getElementById('metric-list');
+    if (!METRICS.length) { box.innerHTML = '<div class="empty">No columns yet.</div>'; return; }
+    box.innerHTML = METRICS.map(m => `
+      <div class="metric-row">
+        <div><div class="metric-name">${esc(m.label)}</div>
+          <div class="metric-meta">${esc(m.type === 'calc' ? 'calculated' : m.type)}${m.unit ? ' · ' + esc(m.unit) : ''}${m.type === 'select' ? ' · ' + esc((m.options || []).join(', ')) : ''}${m.type === 'calc' ? ' · ' + esc((m.options || [])[0] || '') : ''}</div></div>
+        ${manage ? `<button class="btn-remove" data-id="${esc(m.id)}">Remove</button>` : ''}
+      </div>`).join('');
+    box.querySelectorAll('.btn-remove').forEach(b => b.addEventListener('click', () => removeMetric(b.dataset.id)));
+  }
+
+  async function addMetric() {
+    if (!canManage()) return;
+    const label = document.getElementById('m-label').value.trim();
+    const type = document.getElementById('m-type').value;
+    const key = slug(label);
+    if (!label || !key) { setMsg('m-msg', 'Give the column a name.', 'err'); return; }
+    if (METRICS.some(m => m.key === key)) { setMsg('m-msg', 'A column with that name already exists.', 'err'); return; }
+    let options = type === 'select' ? document.getElementById('m-options').value.split(',').map(s => s.trim()).filter(Boolean) : [];
+    if (type === 'calc') {
+      const f = labelsToKeys(document.getElementById('m-calc').value);
+      if (!f) { setMsg('m-msg', 'Formula must use existing column names with + - * / ( ) and abs( ).', 'err'); return; }
+      options = document.getElementById('m-calc-pct').checked ? [f, 'percent'] : [f];
+    }
+    if (type === 'select' && !options.length) { setMsg('m-msg', 'Add at least one dropdown choice.', 'err'); return; }
+    const wantDash = document.getElementById('m-dash').checked;
+    if (wantDash && !['number', 'percent', 'calc'].includes(type)) { setMsg('m-msg', 'Only number / percent columns can have a dashboard widget.', 'err'); return; }
+    const targetRaw = document.getElementById('m-target').value.trim();
+    if (wantDash && targetRaw !== '' && !Number.isFinite(Number(targetRaw))) { setMsg('m-msg', 'Target must be a number.', 'err'); return; }
+
+    const user = (NovusCore.getUser() || {}).username || 'unknown';
+    const btn = document.getElementById('m-add-btn'); btn.disabled = true; setMsg('m-msg', 'Saving…');
+    try {
+      const { error } = await NovusDB.metrics.upsert({
+        plant_id: window.ACTIVE_PLANT.id, form_type: DEPT.name, key, label, type,
+        unit: document.getElementById('m-unit').value.trim(), options,
+        sort: METRICS.length ? Math.max(...METRICS.map(m => m.sort || 0)) + 1 : 0, created_by: user });
+      if (error) throw error;
+      if (wantDash) {
+        const wtype = document.getElementById('m-wtype').value;
+        // Percent columns are stored as fractions, so a typed target of 95 means 0.95.
+        const tgt = targetRaw === '' ? null : ((type === 'percent' || (type === 'calc' && options[1] === 'percent')) ? Number(targetRaw) / 100 : Number(targetRaw));
+        const { error: wErr } = await NovusDB.customWidgets.add({
+          id: crypto.randomUUID(), plant_id: window.ACTIVE_PLANT.id,
+          panel_id: document.getElementById('m-panel').value, sheet: DEPT.name, field: label,
+          widget_type: wtype, agg: wtype === 'metric' ? document.getElementById('m-agg').value : null,
+          range_days: 30, target: tgt, target_dir: document.getElementById('m-target-dir').value,
+          full_width: false, label, created_by: user });
+        if (wErr) throw new Error('Column saved, but the dashboard widget failed: ' + wErr.message);
+      }
+      ['m-label', 'm-unit', 'm-options', 'm-target', 'm-calc'].forEach(id => document.getElementById(id).value = '');
+      setMsg('m-msg', wantDash ? 'Added ✓ — widget is on the dashboard' : 'Added ✓', 'ok');
+    } catch (e) { console.error(e); setMsg('m-msg', e.message || 'Could not add column.', 'err'); }
+    btn.disabled = false;
+    await loadMetrics(); renderGrid(); loadHistory();
+  }
+
+  async function removeMetric(id) {
+    if (!canManage()) return;
+    const m = METRICS.find(x => x.id === id); if (!m) return;
+    if (!confirm(`Remove the "${m.label}" column?\n\nIt disappears from the grid and its dashboard widgets are removed. Past values stay in the database.`)) return;
+    setMsg('m-msg', 'Removing…');
+    try {
+      const { error } = await NovusDB.metrics.deactivate(id);
+      if (error) throw error;
+      const w = await NovusDB.customWidgets.getAll(window.ACTIVE_PLANT.id);
+      if (!w.error) await Promise.all((w.data || []).filter(x => x.sheet === DEPT.name && x.field === m.label).map(x => NovusDB.customWidgets.remove(x.id)));
+      setMsg('m-msg', 'Removed ✓', 'ok');
+    } catch (e) { console.error(e); setMsg('m-msg', e.message || 'Could not remove column.', 'err'); }
+    await loadMetrics(); renderGrid(); loadHistory();
+  }
+
+  // ── Entry grid ───────────────────────────────────────────────────────
+  function cellHtml(m, ri, val) {
+    if (m.type === 'calc') return `<td class="calc"><span data-ri="${ri}" data-calc="${esc(m.key)}">—</span></td>`;
+    const common = `data-ri="${ri}" data-key="${esc(m.key)}"`;
+    const v = esc(toShown(m, val ?? ''));
+    if (m.type === 'select')
+      return `<td class="c-${m.type}"><select ${common}><option value=""></option>${(m.options || []).map(o => `<option${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></td>`;
+    if (m.type === 'text') return `<td class="text"><input type="text" ${common} value="${v}"/></td>`;
+    return `<td><input type="number" step="any" ${common} value="${v}"/></td>`;
+  }
+
+  // L2L fills these four numbers automatically. They show here for reference but cannot be typed over.
+  const L2L_OWNED = { 'Production': ['OEE', 'Downtime'], 'Maintenance': ['Code Red', 'Code Yellow'] };
+  function l2lOwned(m) {
+    const l = PLANT_CONFIG.sources && PLANT_CONFIG.sources.l2l;
+    return !!(l && l.enabled && (L2L_OWNED[DEPT.name] || []).includes(m.label));
+  }
+
+  function renderGrid(keepTyped) {
+    const typed = {};
+    if (keepTyped) document.querySelectorAll('#entry-grid [data-ri]').forEach(el => { if (el.value !== '') typed[el.dataset.ri + '|' + el.dataset.key] = el.value; });
+    const dimLabel = DEPT.dim ? DEPT.dim.label : 'Date';
+    ROWS = dimValues().map(k => ({ key: k }));
+    const date = document.getElementById('entry-date').value;
+    if (!METRICS.length) {
+      document.getElementById('entry-grid').innerHTML = `<tbody><tr><td class="empty">No columns yet. ${canManage() ? 'Open "Manage columns" below to add your own.' : NovusCore.canEditData() ? 'Ask an admin to add columns.' : 'An editor needs to open this tab once to set it up.'}</td></tr></tbody>`;
+      return;
+    }
+    document.getElementById('entry-grid').innerHTML =
+      `<thead><tr><th class="dim">${DEPT.dim ? 'Date · ' + esc(dimLabel) : 'Date'}</th>${METRICS.map(m => `<th>${withUnit(m)}${l2lOwned(m) ? ' <span class="unit" title="Filled automatically from L2L">(from L2L)</span>' : ''}</th>`).join('')}</tr></thead><tbody>` +
+      ROWS.map((r, ri) => {
+        const dflt = (DEPT.dim && DEPT.dim.defaults && DEPT.dim.defaults[r.key]) || {};
+        const ex = Object.assign({}, dflt, EXISTING[r.key] || {});
+        return `<tr><td class="dim">${esc(date)}${r.key ? ' · ' + esc(rowLabel(r.key)) : ''}</td>${METRICS.map(m => l2lOwned(m) ? `<td class="calc" title="Filled automatically from L2L">from L2L</td>` : cellHtml(m, ri, ex[m.key])).join('')}</tr>`;
+      }).join('') + '</tbody>';
+    ROWS.forEach((_, ri) => recalcRow(ri));
+    if (keepTyped) Object.keys(typed).forEach(k => {
+      const [ri, key] = k.split('|'); const el = document.querySelector(`#entry-grid [data-ri="${ri}"][data-key="${CSS.escape(key)}"]`);
+      if (el) { el.value = typed[k]; markChanged(el); }
+    });
+    if (keepTyped) ROWS.forEach((_, ri) => recalcRow(ri));
+  }
+
+  function markChanged(el) { el.closest('td').classList.add('changed'); DIRTY = true; }
+
+  async function loadDate() {
+    const date = document.getElementById('entry-date').value;
+    if (!date) return;
+    const { data, error } = await NovusDB.dataEntries.getByDate(window.ACTIVE_PLANT.id, DEPT.name, date);
+    if (error) { console.error(error); setMsg('save-msg', 'Could not load this date.', 'err'); }
+    EXISTING = {};
+    (data || []).forEach(r => { EXISTING[r.row_key || ''] = r.data || {}; });
+    const has = Object.keys(EXISTING).length > 0;
+    const chip = document.getElementById('date-status');
+    chip.textContent = has ? 'Saved entry — editing' : 'New entry'; chip.className = 'status-chip' + (has ? ' existing' : '');
+    DIRTY = false; renderGrid();
+  }
+
+  async function saveGrid() {
+    if (!METRICS.length) return;
+    if (!NovusCore.canEditData()) { setMsg('save-msg', 'Your account is view-only. Ask a plant admin for the Editor role.', 'err'); return; }
+    const date = document.getElementById('entry-date').value;
+    if (!date) { setMsg('save-msg', 'Pick a date.', 'err'); return; }
+    const user = (NovusCore.getUser() || {}).username || 'unknown';
+    const out = [];
+    for (let ri = 0; ri < ROWS.length; ri++) {
+      const key = ROWS[ri].key;
+      // Start from what's already saved so values of removed columns aren't lost.
+      const data = Object.assign({}, EXISTING[key] || {});
+      const dflt = (DEPT.dim && DEPT.dim.defaults && DEPT.dim.defaults[key]) || {};
+      let any = false;
+      for (const m of METRICS) {
+        if (m.type === 'calc' || l2lOwned(m)) continue;
+        const el = document.querySelector(`#entry-grid [data-ri="${ri}"][data-key="${CSS.escape(m.key)}"]`);
+        let v = el.value.trim();
+        if (v === '') { delete data[m.key]; continue; }
+        if (m.type === 'number' || m.type === 'percent') {
+          const n = Number(v);
+          if (!Number.isFinite(n)) { setMsg('save-msg', `"${m.label}"${key ? ' (' + key + ')' : ''} must be a number.`, 'err'); el.focus(); return; }
+          v = toStored(m, n);
+        }
+        data[m.key] = v;
+        if (dflt[m.key] === undefined || dflt[m.key] !== v) any = true;   // a pre-filled default alone isn't an entry
+      }
+      // Calculated columns are saved too, so the dashboard and exports get the same numbers as the grid.
+      const calcs = rowStored(ri);
+      METRICS.filter(m => m.type === 'calc').forEach(m => { if (calcs[m.key] != null) data[m.key] = calcs[m.key]; else delete data[m.key]; });
+      if (DEPT.dim && key) data[DEPT.dim.field] = key;
+      // Skip rows that are empty now and never existed; keep (blanked) rows that did.
+      if (!any && !(key in EXISTING)) continue;
+      out.push({ plant_id: window.ACTIVE_PLANT.id, form_type: DEPT.name, entry_date: date, row_key: key, data, created_by: user, updated_at: new Date().toISOString() });
+    }
+    if (!out.length) { setMsg('save-msg', 'Nothing to save — enter at least one value.', 'err'); return; }
+    const btn = document.getElementById('save-btn'); btn.disabled = true; setMsg('save-msg', 'Saving…');
+    const { error } = await NovusDB.dataEntries.save(out);
+    btn.disabled = false;
+    if (error) { console.error(error); setMsg('save-msg', 'Save failed: ' + error.message, 'err'); return; }
+    DIRTY = false; setMsg('save-msg', `Saved ${out.length} row${out.length > 1 ? 's' : ''} ✓`, 'ok');
+    await loadDate(); loadHistory();
+  }
+
+  // ── History grid ─────────────────────────────────────────────────────
+  async function loadHistory() {
+    const { data, error } = await NovusDB.dataEntries.getRecent(window.ACTIVE_PLANT.id, DEPT.name);
+    const t = document.getElementById('hist-grid');
+    if (error) { console.error(error); t.innerHTML = '<tbody><tr><td class="empty">Could not load entries.</td></tr></tbody>'; return; }
+    if (!data.length || !METRICS.length) { t.innerHTML = '<tbody><tr><td class="empty">No entries yet.</td></tr></tbody>'; return; }
+    t.innerHTML = `<thead><tr><th class="dim">Date${DEPT.dim ? ' · ' + esc(DEPT.dim.label) : ''}</th>${METRICS.map(m => `<th>${withUnit(m)}</th>`).join('')}<th>By</th></tr></thead><tbody>` +
+      data.map(r => `<tr data-date="${esc(r.entry_date)}"><td class="dim">${esc(r.entry_date)}${r.row_key ? ' · ' + esc(rowLabel(r.row_key)) : ''}</td>` +
+        METRICS.map(m => `<td>${esc(toShown(m, (r.data || {})[m.key]))}</td>`).join('') + `<td>${esc(r.created_by)}</td></tr>`).join('') + '</tbody>';
+    t.querySelectorAll('tbody tr').forEach(tr => tr.addEventListener('click', () => {
+      if (DIRTY && !confirm('You have unsaved changes. Open that day anyway?')) return;
+      setDate(tr.dataset.date); window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
+  }
+
+  // ── Date controls ────────────────────────────────────────────────────
+  function setDate(d) { document.getElementById('entry-date').value = d; loadDate(); }
+  function shiftDate(n) {
+    const el = document.getElementById('entry-date'); const d = new Date((el.value || todayStr()) + 'T00:00:00');
+    d.setDate(d.getDate() + n); setDate(d.toLocaleDateString('en-CA'));
+  }
+  function guardedDate(fn) { return () => { if (DIRTY && !confirm('You have unsaved changes. Leave this date?')) return; fn(); }; }
+
+  // ── Wiring ───────────────────────────────────────────────────────────
+  function wireGridKeys() {
+    const grid = document.getElementById('entry-grid');
+    grid.addEventListener('input', e => { if (e.target.matches('[data-ri]')) { markChanged(e.target); recalcRow(Number(e.target.dataset.ri)); } });
+    grid.addEventListener('change', e => { if (e.target.matches('select[data-ri]')) { markChanged(e.target); recalcRow(Number(e.target.dataset.ri)); } });
+    grid.addEventListener('keydown', e => {
+      if (!e.target.matches('[data-ri]')) return;
+      const ri = Number(e.target.dataset.ri), key = e.target.dataset.key;
+      const find = (r, k) => grid.querySelector(`[data-ri="${r}"][data-key="${CSS.escape(k)}"]`);
+      let next = null;
+      if (e.key === 'Enter') next = find(ri + 1, key);
+      else if (e.key === 'ArrowDown') next = find(ri + 1, key);
+      else if (e.key === 'ArrowUp') next = find(ri - 1, key);
+      else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.target.tagName === 'INPUT' && e.target.type !== 'number') return;
+      if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (next) { next.focus(); if (next.select) next.select(); } else if (e.key === 'Enter') document.getElementById('save-btn').focus(); }
+    });
+  }
+
+  function wireManageForm() {
+    const allowed = canManage();
+    document.getElementById('manage-body').classList.toggle('hidden', !allowed);
+    document.getElementById('manage-locked').classList.toggle('hidden', allowed);
+    document.getElementById('m-panel').innerHTML = DASH_PANELS.map(([id, l]) => `<option value="${id}">${esc(l)}</option>`).join('');
+    const sync = () => {
+      document.getElementById('m-options-wrap').classList.toggle('hidden', document.getElementById('m-type').value !== 'select');
+      document.getElementById('m-calc-wrap').classList.toggle('hidden', document.getElementById('m-type').value !== 'calc');
+      document.getElementById('m-dash-opts').classList.toggle('hidden', !document.getElementById('m-dash').checked);
+      document.getElementById('m-agg-wrap').classList.toggle('hidden', document.getElementById('m-wtype').value !== 'metric');
+    };
+    ['m-type', 'm-dash', 'm-wtype'].forEach(id => document.getElementById(id).addEventListener('change', sync));
+    sync();
+    document.getElementById('m-add-btn').addEventListener('click', addMetric);
+    document.getElementById('t-add-btn').addEventListener('click', addTab);
+    document.getElementById('tab-remove-btn').addEventListener('click', removeTab);
+    document.getElementById('restore-btn').addEventListener('click', restoreTab);
+    { const oc = document.getElementById('opt-city'); if (!CITIES) oc.remove(); else oc.textContent = 'A row for each city (' + CITIES.values.join(', ') + ')'; }
+    document.getElementById('t-rows').addEventListener('change', () => document.getElementById('t-custom-wrap').classList.toggle('hidden', document.getElementById('t-rows').value !== 'custom'));
+  }
+
+  window.onload = async () => {
+    NovusCore.requireAuth();
+    if (!NovusCore.canEditData()) {
+      const b = document.getElementById('save-btn'); if (b) { b.disabled = true; b.title = 'View-only account'; }
+      setTimeout(() => setMsg('save-msg', 'View-only account: you can look at entries but not save changes.', ''), 0);
+    }
+    const plant = await resolveActivePlant();
+    document.getElementById('plant-tag').textContent = plant.shortLabel || plant.name;
+    document.title = 'Data Entry – ' + plant.name;
+    document.getElementById('entry-date').value = todayStr();
+    try {
+      const { data: cps } = await NovusDB.customPanels.getAll(plant.id);
+      (cps || []).forEach(c => DASH_PANELS.push(['cpanel-' + c.id, ((c.icon ? c.icon + ' ' : '') + c.title)]));
+    } catch (_) {}
+    wireManageForm(); wireGridKeys();
+    document.getElementById('save-btn').addEventListener('click', saveGrid);
+    document.getElementById('entry-date').addEventListener('change', guardedDate(loadDate));
+    document.getElementById('d-prev').addEventListener('click', guardedDate(() => shiftDate(-1)));
+    document.getElementById('d-next').addEventListener('click', guardedDate(() => shiftDate(1)));
+    document.getElementById('d-today').addEventListener('click', guardedDate(() => setDate(todayStr())));
+    let start = new URLSearchParams(location.search).get('dept'); try { start = start || localStorage.getItem('novus_entry_dept'); } catch (_) {}
+    await loadDepartments();
+    await selectDept(start);
+    // Live updates from other users: refresh history; refresh the grid only if nothing is mid-edit.
+    NovusDB.dataEntries.subscribe(() => { loadHistory(); if (!DIRTY) loadDate(); });
+    NovusDB.metrics.subscribe(async () => { await loadMetrics(); renderGrid(DIRTY); loadHistory(); });
+    NovusDB.departments.subscribe(async () => { const cur = DEPT && DEPT.name; await loadDepartments(); if (!ALL_DEPTS.some(d => d.name === cur)) await selectDept(ALL_DEPTS[0] && ALL_DEPTS[0].name); else renderTabs(); });
+  };
+</script>
+<script src="novus-interactions.js" defer></script>
+</body>
+</html>
