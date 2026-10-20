@@ -1,7 +1,19 @@
--- data_entries.sql  (v3: spreadsheet-style entry + real sign-in and permissions)
+-- data_entries.sql  (v4: several plants in one Supabase project)
 -- Run once in Supabase: SQL Editor > New query > paste > Run.
 -- Safe to re-run, and safe to run on top of v1 or v2 of this script.
 -- **Re-run it every time you get a new copy of this file.**
+--
+-- WHAT CHANGED IN v4 (several plants in ONE Supabase project)
+--   * New tables: plants, super_admins. plant_members now has a plant_id, so one
+--     person can be Admin at one plant and Viewer at another.
+--   * Every plant only ever sees its own rows: all permission checks now look at
+--     the row's plant_id.
+--   * A "super-admin" can create and delete plants and assign people to any plant.
+--     Plant admins still manage only their own plant.
+--   * Rules and Needs Action got a plant_id column (they used to be shared).
+--   * Upgrading from v3: every existing admin becomes a super-admin, and existing
+--     people and data are attached to the plant that already holds your data.
+--     Demote anyone you do not want as a super-admin on the Plants page.
 --
 -- WHAT CHANGED IN v3
 --   * Sign-in is now Supabase Auth (email + password). The old shared-password
@@ -14,31 +26,79 @@
 --   * dds_highlights is now scoped by plant_id like every other table.
 --   * New tables: plant_members, dashboard_layout_history, dashboard_panel_config.
 --
--- ONE PLANT PER SUPABASE PROJECT. plant_id is still stored on every row (it
--- must match plant.id in plant-config.js) but permissions are per project.
---
 -- AFTER RUNNING THIS FILE (first time only), make yourself the first admin:
 --   1. In the app, click "Request an account" and sign up (or add yourself in
 --      Supabase > Authentication > Users > Add user).
 --   2. Run this in the SQL Editor:   select public.bootstrap_admin('you@company.com');
---   3. From then on, approve everyone else on the Team page in the app.
+--      (this makes you the first super-admin)
+--   3. Sign in, open Plants, create your first plant, then use the Team page to
+--      approve everyone else. (Upgrading from v3? You are already set up.)
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 1. Who is allowed in
 -- ═══════════════════════════════════════════════════════════════════════════
+create table if not exists public.plants (
+  id           text        primary key check (id ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$'),
+  name         text        not null default '',
+  short_label  text        not null default '',
+  location     text        not null default '',
+  config       jsonb       not null default '{}'::jsonb,   -- {"lines":[{"code":"2A","label":"2A"}], ...}
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists public.super_admins (
+  user_id     uuid        primary key references auth.users(id) on delete cascade,
+  email       text        not null default '',
+  created_at  timestamptz not null default now()
+);
+
 create table if not exists public.plant_members (
-  user_id       uuid        primary key references auth.users(id) on delete cascade,
+  user_id       uuid        not null references auth.users(id) on delete cascade,
+  plant_id      text        not null,
   email         text        not null default '',
   display_name  text        not null default '',
   role          text        not null default 'viewer' check (role in ('admin','editor','viewer')),
-  created_at    timestamptz not null default now()
+  created_at    timestamptz not null default now(),
+  primary key (user_id, plant_id)
 );
+-- A v3 table has no plant_id yet; the migration in section 4c fills it in.
+alter table public.plant_members add column if not exists plant_id text;
+
+-- A plant's ID can never change (every row of its data points at it).
+create or replace function public.plants_lock_id() returns trigger language plpgsql as $$
+begin
+  if new.id <> old.id then raise exception 'A plant ID cannot be changed'; end if;
+  return new;
+end $$;
+drop trigger if exists plants_lock_id on public.plants;
+create trigger plants_lock_id before update on public.plants for each row execute function public.plants_lock_id();
 
 -- Helper checks used by every policy below. SECURITY DEFINER so they can read
--- plant_members without the policies on it recursing.
+-- plant_members without the policies on it recursing. A super-admin counts as
+-- an admin of every plant.
+create or replace function public.dds_is_super() returns boolean
+  language sql stable security definer set search_path = public as
+  $$ select exists (select 1 from public.super_admins where user_id = auth.uid()) $$;
+create or replace function public.dds_role(p text) returns text
+  language sql stable security definer set search_path = public as
+  $$ select case when public.dds_is_super() then 'admin'
+                 else (select role from public.plant_members where user_id = auth.uid() and plant_id = p) end $$;
+create or replace function public.dds_is_member(p text) returns boolean
+  language sql stable security definer set search_path = public as
+  $$ select public.dds_role(p) is not null $$;
+create or replace function public.dds_is_editor(p text) returns boolean
+  language sql stable security definer set search_path = public as
+  $$ select public.dds_role(p) in ('admin','editor') $$;
+create or replace function public.dds_is_admin(p text) returns boolean
+  language sql stable security definer set search_path = public as
+  $$ select public.dds_role(p) = 'admin' $$;
+
+-- "Anywhere" versions, for the few old tables that have no plant_id column.
 create or replace function public.dds_role() returns text
   language sql stable security definer set search_path = public as
-  $$ select role from public.plant_members where user_id = auth.uid() $$;
+  $$ select case when public.dds_is_super() then 'admin'
+                 else (select role from public.plant_members where user_id = auth.uid()
+                       order by case role when 'admin' then 1 when 'editor' then 2 else 3 end limit 1) end $$;
 create or replace function public.dds_is_member() returns boolean
   language sql stable security definer set search_path = public as
   $$ select public.dds_role() is not null $$;
@@ -49,48 +109,129 @@ create or replace function public.dds_is_admin() returns boolean
   language sql stable security definer set search_path = public as
   $$ select public.dds_role() = 'admin' $$;
 
--- Admin approves someone who has already created an account (by email).
-create or replace function public.add_plant_member(p_email text, p_role text default 'viewer', p_name text default '')
+-- A plant admin (or super-admin) approves someone who has already created an
+-- account, for ONE plant. The same person can be added to several plants.
+drop function if exists public.add_plant_member(text,text,text);
+create or replace function public.add_plant_member(p_plant text, p_email text, p_role text default 'viewer', p_name text default '')
   returns void language plpgsql security definer set search_path = public, auth as $$
 declare uid uuid;
 begin
-  if not public.dds_is_admin() then raise exception 'Only admins can add people'; end if;
+  if not public.dds_is_admin(p_plant) then raise exception 'Only an admin of this plant can add people'; end if;
+  if not exists (select 1 from public.plants where id = p_plant) then raise exception 'There is no plant %', p_plant; end if;
   if p_role not in ('admin','editor','viewer') then raise exception 'Role must be admin, editor or viewer'; end if;
   select id into uid from auth.users where lower(email) = lower(trim(p_email));
   if uid is null then raise exception 'No account for % yet. Ask them to click "Request an account" on the login page first.', p_email; end if;
-  insert into public.plant_members(user_id, email, display_name, role)
-    values (uid, lower(trim(p_email)), coalesce(nullif(trim(p_name),''), split_part(lower(trim(p_email)),'@',1)), p_role)
-    on conflict (user_id) do update set role = excluded.role,
+  insert into public.plant_members(user_id, plant_id, email, display_name, role)
+    values (uid, p_plant, lower(trim(p_email)), coalesce(nullif(trim(p_name),''), split_part(lower(trim(p_email)),'@',1)), p_role)
+    on conflict (user_id, plant_id) do update set role = excluded.role,
       display_name = case when trim(p_name) <> '' then trim(p_name) else public.plant_members.display_name end;
 end $$;
 
--- Pending sign-ups (accounts with no role yet) so the Team page can list them.
+-- Sign-ups that have no plant yet (and are not super-admins), so Team can list them.
 create or replace function public.pending_accounts()
   returns table(email text, requested_at timestamptz) language sql stable security definer set search_path = public, auth as $$
   select u.email::text, u.created_at from auth.users u
-  where public.dds_is_admin() and not exists (select 1 from public.plant_members m where m.user_id = u.id)
+  where (public.dds_is_super() or exists (select 1 from public.plant_members a where a.user_id = auth.uid() and a.role = 'admin'))
+    and not exists (select 1 from public.plant_members m where m.user_id = u.id)
+    and not exists (select 1 from public.super_admins s where s.user_id = u.id)
   order by u.created_at desc $$;
 
--- First admin. Only works while there are no members, and only from the SQL Editor
--- (not callable from the website).
+-- Super-admins only: make a new plant. p_copy_from (optional) copies another
+-- plant's SETUP (columns, departments, dashboard layout, panel settings), never
+-- its entered data, people or custom panels.
+create or replace function public.create_plant(
+  p_id text, p_name text, p_short text default '', p_location text default '',
+  p_lines jsonb default '[]'::jsonb, p_copy_from text default null)
+  returns void language plpgsql security definer set search_path = public as $$
+declare t text; idtype text; expr text;
+begin
+  if not public.dds_is_super() then raise exception 'Only a super-admin can create plants'; end if;
+  p_id := trim(coalesce(p_id,''));
+  if p_id !~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$' then raise exception 'Plant ID may use letters, numbers, - and _ (up to 32 characters, no spaces)'; end if;
+  if trim(coalesce(p_name,'')) = '' then raise exception 'Give the plant a name'; end if;
+  if exists (select 1 from public.plants where lower(id) = lower(p_id)) then raise exception 'A plant with ID % already exists', p_id; end if;
+  insert into public.plants(id, name, short_label, location, config)
+    values (p_id, trim(p_name), coalesce(nullif(trim(p_short),''), trim(p_name)), coalesce(trim(p_location),''),
+            jsonb_build_object('lines', coalesce(p_lines, '[]'::jsonb)));
+  if coalesce(p_copy_from,'') <> '' and exists (select 1 from public.plants where id = p_copy_from) then
+    foreach t in array array['metric_definitions','entry_departments','dashboard_layout','dashboard_panel_config',
+                             'dashboard_hidden_items','dashboard_metric_sources','dashboard_highlight_cards'] loop
+      continue when to_regclass('public.' || t) is null;
+      select data_type into idtype from information_schema.columns
+        where table_schema = 'public' and table_name = t and column_name = 'id';
+      expr := format('jsonb_build_object(''plant_id'', %L)', p_id);
+      if idtype = 'uuid' then expr := expr || ' || jsonb_build_object(''id'', gen_random_uuid())';
+      elsif idtype is not null then expr := expr || ' || jsonb_build_object(''id'', gen_random_uuid()::text)'; end if;
+      execute format('insert into public.%I select (jsonb_populate_record(null::public.%I, to_jsonb(r) || %s)).* from public.%I r where r.plant_id = %L',
+                     t, t, expr, t, p_copy_from);
+    end loop;
+  end if;
+end $$;
+
+-- Super-admins only. PERMANENT: erases the plant and every row that belongs to
+-- it (entries, columns, layout, announcements, people's access to it...).
+-- Accounts themselves are kept. The last remaining plant cannot be deleted.
+create or replace function public.delete_plant(p_id text, p_confirm text)
+  returns void language plpgsql security definer set search_path = public as $$
+declare r record;
+begin
+  if not public.dds_is_super() then raise exception 'Only a super-admin can delete plants'; end if;
+  if not exists (select 1 from public.plants where id = p_id) then raise exception 'There is no plant %', p_id; end if;
+  if p_confirm is distinct from p_id then raise exception 'Type the plant ID exactly to confirm'; end if;
+  if (select count(*) from public.plants) <= 1 then raise exception 'This is the last plant. Create another one first.'; end if;
+  for r in
+    select c.table_name from information_schema.columns c
+      join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name and t.table_type = 'BASE TABLE'
+     where c.table_schema = 'public' and c.column_name = 'plant_id'
+  loop
+    execute format('delete from public.%I where plant_id = %L', r.table_name, p_id);
+  end loop;
+  delete from public.plants where id = p_id;
+end $$;
+
+-- Super-admins only: promote or demote a super-admin (you cannot demote yourself).
+create or replace function public.set_super_admin(p_email text, p_on boolean)
+  returns void language plpgsql security definer set search_path = public, auth as $$
+declare uid uuid;
+begin
+  if not public.dds_is_super() then raise exception 'Only a super-admin can do this'; end if;
+  select id into uid from auth.users where lower(email) = lower(trim(p_email));
+  if uid is null then raise exception 'No account for % yet.', p_email; end if;
+  if p_on then
+    insert into public.super_admins(user_id, email) values (uid, lower(trim(p_email))) on conflict do nothing;
+  else
+    if uid = auth.uid() then raise exception 'You cannot remove your own super-admin access'; end if;
+    delete from public.super_admins where user_id = uid;
+  end if;
+end $$;
+
+-- First super-admin. Only works while there is none, and only from the SQL
+-- Editor (not callable from the website).
 create or replace function public.bootstrap_admin(p_email text) returns text
   language plpgsql security definer set search_path = public, auth as $$
 declare uid uuid;
 begin
-  if exists (select 1 from public.plant_members) then raise exception 'Members already exist. Use the Team page.'; end if;
+  if exists (select 1 from public.super_admins) then raise exception 'A super-admin already exists. Use the Plants page.'; end if;
   select id into uid from auth.users where lower(email) = lower(trim(p_email));
   if uid is null then raise exception 'No account for %. Sign up first (or add the user in Authentication > Users).', p_email; end if;
-  insert into public.plant_members(user_id, email, display_name, role)
-    values (uid, lower(trim(p_email)), split_part(lower(trim(p_email)),'@',1), 'admin');
-  return p_email || ' is now an admin';
+  insert into public.super_admins(user_id, email) values (uid, lower(trim(p_email)));
+  return p_email || ' is now a super-admin';
 end $$;
 
 revoke all on function public.bootstrap_admin(text) from public, anon, authenticated;
-revoke all on function public.add_plant_member(text,text,text) from public, anon;
+revoke all on function public.add_plant_member(text,text,text,text) from public, anon;
 revoke all on function public.pending_accounts() from public, anon;
-grant execute on function public.add_plant_member(text,text,text) to authenticated;
+revoke all on function public.create_plant(text,text,text,text,jsonb,text) from public, anon;
+revoke all on function public.delete_plant(text,text) from public, anon;
+revoke all on function public.set_super_admin(text,boolean) from public, anon;
+grant execute on function public.add_plant_member(text,text,text,text) to authenticated;
 grant execute on function public.pending_accounts() to authenticated;
-grant execute on function public.dds_role(), public.dds_is_member(), public.dds_is_editor(), public.dds_is_admin() to authenticated;
+grant execute on function public.create_plant(text,text,text,text,jsonb,text) to authenticated;
+grant execute on function public.delete_plant(text,text) to authenticated;
+grant execute on function public.set_super_admin(text,boolean) to authenticated;
+grant execute on function public.dds_is_super(), public.dds_role(text), public.dds_is_member(text),
+  public.dds_is_editor(text), public.dds_is_admin(text),
+  public.dds_role(), public.dds_is_member(), public.dds_is_editor(), public.dds_is_admin() to authenticated;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 2. Data Entry tables
@@ -333,10 +474,12 @@ alter table public.announcements add column if not exists plant_id text not null
 create table if not exists public.rules (
   id text primary key, text text default '', date text default '', created_at timestamptz not null default now()
 );
+alter table public.rules add column if not exists plant_id text not null default '';
 create table if not exists public.needs_action (
   id text primary key, date text default '', description text default '', owner text default '',
   completed_date text default '', created_at timestamptz not null default now()
 );
+alter table public.needs_action add column if not exists plant_id text not null default '';
 create table if not exists public.play_call (
   id text primary key, plant_id text not null default '', owner text default '', text text default '',
   webhook text default '', date text default '', created_at timestamptz not null default now()
@@ -358,6 +501,59 @@ create table if not exists public.weekly_staff_meeting (
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════
+-- 4c. Upgrade from v3 (one plant) and tidy the plant tables
+-- ═══════════════════════════════════════════════════════════════════════════
+do $$
+declare first_run boolean; pid text;
+begin
+  first_run := not exists (select 1 from public.plants);
+  if first_run then
+    -- Register the plant IDs that already hold data. The name is left blank so the
+    -- site keeps showing the name from plant-config.js until you edit it on the Plants page.
+    insert into public.plants(id, name, short_label)
+    select distinct x, '', '' from (
+      select plant_id x from public.metric_definitions
+      union select plant_id from public.data_entries
+      union select plant_id from public.dashboard_layout
+      union select plant_id from public.dds_highlights
+      union select plant_id from public.announcements
+      union select plant_id from public.play_call
+    ) u where x is not null and x ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$'
+    on conflict do nothing;
+    select p.id into pid from public.plants p
+      order by (select count(*) from public.data_entries d where d.plant_id = p.id) desc, p.id limit 1;
+    if pid is null and exists (select 1 from public.plant_members where plant_id is null) then
+      insert into public.plants(id, name, short_label) values ('plant', '', '');
+      pid := 'plant';
+    end if;
+    if pid is not null then
+      update public.plant_members set plant_id = pid where plant_id is null;
+      update public.announcements set plant_id = pid where plant_id = '';
+      update public.play_call     set plant_id = pid where plant_id = '';
+      update public.rules         set plant_id = pid where plant_id = '';
+      update public.needs_action  set plant_id = pid where plant_id = '';
+      -- v3 admins could already do everything project-wide, so they keep that power.
+      insert into public.super_admins(user_id, email)
+        select user_id, email from public.plant_members where role = 'admin' on conflict do nothing;
+    end if;
+  end if;
+
+  delete from public.plant_members where plant_id is null;
+  alter table public.plant_members alter column plant_id set not null;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.plant_members'::regclass and contype = 'p'
+                   and pg_get_constraintdef(oid) like '%plant_id%') then
+    alter table public.plant_members drop constraint if exists plant_members_pkey;
+    alter table public.plant_members add primary key (user_id, plant_id);
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'plant_members_plant_fk') then
+    -- people whose plant no longer exists have nothing to point at
+    delete from public.plant_members m where not exists (select 1 from public.plants p where p.id = m.plant_id);
+    alter table public.plant_members add constraint plant_members_plant_fk
+      foreign key (plant_id) references public.plants(id) on delete cascade;
+  end if;
+end $$;
+
+-- ═══════════════════════════════════════════════════════════════════════════
 -- 5. Permissions (row-level security)
 -- ═══════════════════════════════════════════════════════════════════════════
 -- dds_apply_policies(table, read, insert, update, delete): removes every old
@@ -366,23 +562,28 @@ create table if not exists public.weekly_staff_meeting (
 create or replace function public.dds_apply_policies(
   tbl text, r_read text, r_insert text, r_update text, r_delete text) returns void
   language plpgsql set search_path = public as $$
-declare p record; fn text;
+declare p record; arg text;
 begin
   execute format('alter table public.%I enable row level security', tbl);
   for p in select policyname from pg_policies where schemaname = 'public' and tablename = tbl loop
     execute format('drop policy %I on public.%I', p.policyname, tbl);
   end loop;
+  -- A table with a plant_id column is checked against THAT row's plant.
+  -- A table without one (old archived boards) is checked against "any plant".
+  arg := case when exists (select 1 from information_schema.columns
+                           where table_schema = 'public' and table_name = tbl and column_name = 'plant_id')
+              then 'plant_id' else '' end;
   if r_read   is not null then
-    execute format('create policy "dds read" on public.%I for select to authenticated using (public.dds_is_%s())', tbl, r_read);
+    execute format('create policy "dds read" on public.%I for select to authenticated using (public.dds_is_%s(%s))', tbl, r_read, arg);
   end if;
   if r_insert is not null then
-    execute format('create policy "dds insert" on public.%I for insert to authenticated with check (public.dds_is_%s())', tbl, r_insert);
+    execute format('create policy "dds insert" on public.%I for insert to authenticated with check (public.dds_is_%s(%s))', tbl, r_insert, arg);
   end if;
   if r_update is not null then
-    execute format('create policy "dds update" on public.%I for update to authenticated using (public.dds_is_%s()) with check (public.dds_is_%s())', tbl, r_update, r_update);
+    execute format('create policy "dds update" on public.%I for update to authenticated using (public.dds_is_%s(%s)) with check (public.dds_is_%s(%s))', tbl, r_update, arg, r_update, arg);
   end if;
   if r_delete is not null then
-    execute format('create policy "dds delete" on public.%I for delete to authenticated using (public.dds_is_%s())', tbl, r_delete);
+    execute format('create policy "dds delete" on public.%I for delete to authenticated using (public.dds_is_%s(%s))', tbl, r_delete, arg);
   end if;
 end $$;
 revoke all on function public.dds_apply_policies(text,text,text,text,text) from public, anon, authenticated;
@@ -400,23 +601,36 @@ select public.dds_apply_policies('dashboard_highlight_cards',  'member', 'admin'
 select public.dds_apply_policies('dashboard_panel_config',     'member', 'admin',  'admin',  'admin');
 select public.dds_apply_policies('dashboard_layout_history',   'admin',  'admin',  null,     null);
 select public.dds_apply_policies('dds_highlights',             'member', 'editor', 'editor', null);
+select public.dds_apply_policies('announcements',              'member', 'editor', 'editor', 'editor');
+select public.dds_apply_policies('rules',                      'member', 'editor', 'editor', 'editor');
+select public.dds_apply_policies('needs_action',               'member', 'editor', 'editor', 'editor');
+select public.dds_apply_policies('play_call',                  'member', 'editor', 'editor', 'editor');
 
--- plant_members: you can see your own row; admins see and manage everyone.
--- (New rows only come from add_plant_member() above.)
-alter table public.plant_members enable row level security;
+-- plants: you see the plants you belong to (a super-admin sees all). An admin of a
+-- plant may edit its name, location and lines; creating and deleting plants only
+-- happens through create_plant() / delete_plant(), for super-admins.
 do $$
-declare p record;
+declare p record; t text;
 begin
-  for p in select policyname from pg_policies where schemaname='public' and tablename='plant_members' loop
-    execute format('drop policy %I on public.plant_members', p.policyname);
+  foreach t in array array['plants','plant_members','super_admins'] loop
+    execute format('alter table public.%I enable row level security', t);
+    for p in select policyname from pg_policies where schemaname='public' and tablename=t loop
+      execute format('drop policy %I on public.%I', p.policyname, t);
+    end loop;
   end loop;
 end $$;
+create policy "plants read"   on public.plants for select to authenticated using (public.dds_is_member(id));
+create policy "plants update" on public.plants for update to authenticated
+  using (public.dds_is_admin(id)) with check (public.dds_is_admin(id));
+create policy "super read"    on public.super_admins for select to authenticated using (public.dds_is_super());
+-- plant_members: you can see your own rows; a plant's admins see and manage that plant's people.
+-- (New rows only come from add_plant_member() above.)
 create policy "members read"   on public.plant_members for select to authenticated
-  using (user_id = auth.uid() or public.dds_is_admin());
+  using (user_id = auth.uid() or public.dds_is_admin(plant_id));
 create policy "members update" on public.plant_members for update to authenticated
-  using (public.dds_is_admin()) with check (public.dds_is_admin());
+  using (public.dds_is_admin(plant_id)) with check (public.dds_is_admin(plant_id));
 create policy "members delete" on public.plant_members for delete to authenticated
-  using (public.dds_is_admin() and user_id <> auth.uid());   -- admins cannot remove themselves
+  using (public.dds_is_admin(plant_id) and user_id <> auth.uid());   -- admins cannot remove themselves
 
 -- Boards created by other setup scripts (announcements, play call, etc.).
 -- Only tightened if the table exists in this project. Editors and admins can
@@ -425,8 +639,7 @@ create policy "members delete" on public.plant_members for delete to authenticat
 do $$
 declare t text;
 begin
-  foreach t in array array['announcements','rules','needs_action','play_call',
-                           'lean_initiatives','lean_dept_state','weekly_staff_meeting'] loop
+  foreach t in array array['lean_initiatives','lean_dept_state','weekly_staff_meeting'] loop
     if to_regclass('public.' || t) is not null then
       perform public.dds_apply_policies(t, 'member', 'editor', 'editor', 'editor');
     end if;

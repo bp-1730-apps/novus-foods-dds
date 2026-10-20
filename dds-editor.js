@@ -231,85 +231,202 @@
     });
   }
 
-  // ── Production Summary: rename blocks, pick lines, columns and tiles ──
-  function productionForm(anchor) {
-    lsEnsure();
-    const cur = prodSanitize(LS.draft.prod || (window.PLANT_CONFIG.productionSummary) || PROD_DEFAULT);
-    const W = JSON.parse(JSON.stringify(cur));
+  // ── Production Summary: blocks, tiles, columns, charts, goals ──
+  const BLK_NAMES = { top: 'Number tiles and downtime drivers', table: 'Table of lines', charts: 'Charts', totals: 'Totals row' };
+  const firstField = s => getAvailableFields(s || 'Production')[0] || 'OEE';
+  function prodCurrent() { lsEnsure(); return JSON.parse(JSON.stringify(prodSanitize(LS.draft.prod || window.PLANT_CONFIG.productionSummary || PROD_DEFAULT))); }
+  function prodCommit(W) {
+    const clean = prodSanitize(W), def = prodSanitize(window.PLANT_CONFIG.productionSummary || PROD_DEFAULT);
+    lsChange(d => { d.prod = JSON.stringify(clean) === JSON.stringify(def) ? null : clean; });
+  }
+  function prodMutate(fn) { const W = prodCurrent(); fn(W); prodCommit(W); }
+  const newTile = grp => ({ id: (grp === 'total' ? 'ptotal-' : 'ptile-') + Date.now().toString(36), label: grp === 'total' ? 'New total' : 'New tile', sheet: 'Production', field: firstField(), agg: grp === 'total' ? 'sum' : 'last', format: 'number', date: grp === 'total' ? 'latest' : 'selected' });
+  const newCol = () => ({ label: 'New', field: firstField(), agg: 'avg', format: 'number', date: 'selected' });
+  const newChart = () => ({ id: 'pchart-' + Date.now().toString(36), title: 'New chart', type: 'line', sheet: 'Production', scope: 'all', days: 30, series: [{ label: '', field: firstField(), agg: 'avg' }] });
+
+  // opts: {} = everything · {sec:'head'|'left'|'top'|'table'|'charts'|'totals'} = one block · {grp,i} = one item
+  function productionForm(anchor, only) {
+    only = only || {};
+    const W = prodCurrent();
     const sheets = dashSheetNames(), lines = (window.ACTIVE_PLANT && ACTIVE_PLANT.lines) || [];
     const fieldOpts = (sheetName, now) => { const fs = getAvailableFields(sheetName).slice(); if (now && !fs.includes(now)) fs.unshift(now); return fs.map(f => opt(f, f, f === now)).join(''); };
     const selOf = (obj, map) => Object.keys(map).map(k => opt(k, map[k], k === obj)).join('');
-    const tileRow = (t, i, grp) => `<div class="ed-card" data-grp="${grp}" data-i="${i}">
+    const isPct = f => String(f).startsWith('percent');
+    const goalUi = (o, fmt, extra) => {
+      const p = isPct(fmt), k = p ? 100 : 1, g = o.target || {}, show = v => (v == null || v === '') ? '' : Math.round(v * k * 1e6) / 1e6;
+      return `<div class="ed-sub">Goal colours (optional)</div>
+        <div class="ed-3"><label class="ed-f"><span>Better when</span><select data-k="tbetter">${opt('', 'No goal', !o.target)}${opt('up', 'Higher is better', g.better === 'up')}${opt('down', 'Lower is better', g.better === 'down')}</select></label>
+          <label class="ed-f"><span>Red at</span><input type="number" step="any" data-k="tred" value="${show(g.red)}"></label>
+          <label class="ed-f"><span>Amber until</span><input type="number" step="any" data-k="tamber" value="${show(g.amber)}"></label></div>
+        <div class="ed-hint">Higher is better, red 60, amber 65: red up to 60, amber up to 65, green above. Lower is better: red at or above the first number, amber above the second. ${p ? 'Type percentages as plain numbers (60 means 60%).' : ''}</div>${extra || ''}`;
+    };
+    const tileRow = (t, i, grp, solo) => `<div class="ed-card" data-grp="${grp}" data-i="${i}" data-pctui="${isPct(t.format) ? 1 : 0}">
       <div class="ed-2"><label class="ed-f"><span>Label</span><input data-k="label" value="${esc(t.label)}" maxlength="40"></label>
         <label class="ed-f"><span>Sheet</span><select data-k="sheet">${sheets.map(s => opt(s, s, s === t.sheet)).join('')}</select></label></div>
       <div class="ed-2"><label class="ed-f"><span>Column</span><select data-k="field">${fieldOpts(t.sheet, t.field)}</select></label>
         <label class="ed-f"><span>Combine rows as</span><select data-k="agg">${selOf(t.agg, PROD_AGGS)}</select></label></div>
       <div class="ed-2"><label class="ed-f"><span>Show as</span><select data-k="format">${selOf(t.format, PROD_FORMATS)}</select></label>
         <label class="ed-f"><span>Which day</span><select data-k="date">${opt('selected', 'The chosen day', t.date === 'selected')}${opt('latest', 'Latest day with data', t.date === 'latest')}</select></label></div>
+      ${goalUi(t, t.format)}
       ${prodIsL2L(t.sheet, t.field) ? '<div class="ed-hint">This number comes from L2L automatically.</div>' : ''}
-      <button type="button" class="ed-link danger" data-rm="${grp}|${i}">Remove</button></div>`;
-    const colRow = (c, i) => `<div class="ed-card" data-grp="col" data-i="${i}">
+      ${solo ? '' : `<button type="button" class="ed-link danger" data-rm="${grp}|${i}">Remove</button>`}</div>`;
+    const colRow = (c, i, solo) => {
+      const perLine = lines.length ? `<details class="ed-det"${c.perLine ? ' open' : ''}><summary>Different goals for specific lines</summary>
+        <div class="ed-hint">Leave a line blank to use the goal above. Needs a goal direction to be set.</div>
+        ${lines.map(l => { const g = (c.perLine || {})[l] || {}, k = isPct(c.format) ? 100 : 1, sh = v => (v == null || v === '') ? '' : Math.round(v * k * 1e6) / 1e6;
+          return `<div class="ed-3 ed-plrow"><span class="ed-pllabel">${esc(prodLineLabel(l))}</span><label class="ed-f"><span>Red at</span><input type="number" step="any" data-pl="${esc(l)}" data-pk="red" value="${sh(g.red)}"></label><label class="ed-f"><span>Amber until</span><input type="number" step="any" data-pl="${esc(l)}" data-pk="amber" value="${sh(g.amber)}"></label></div>`; }).join('')}</details>` : '';
+      return `<div class="ed-card" data-grp="col" data-i="${i}" data-pctui="${isPct(c.format) ? 1 : 0}">
       <div class="ed-2"><label class="ed-f"><span>Heading</span><input data-k="label" value="${esc(c.label)}" maxlength="24"></label>
         <label class="ed-f"><span>Column</span><select data-k="field">${fieldOpts('Production', c.field)}</select></label></div>
       <div class="ed-2"><label class="ed-f"><span>Show as</span><select data-k="format">${selOf(c.format, PROD_FORMATS)}</select></label>
         <label class="ed-f"><span>Which day</span><select data-k="date">${opt('selected', 'The chosen day', c.date === 'selected')}${opt('latest', 'Latest day with data', c.date === 'latest')}</select></label></div>
+      ${goalUi(c, c.format, perLine)}
       ${prodIsL2L('Production', c.field) ? '<div class="ed-hint">This number comes from L2L automatically.</div>' : ''}
-      <button type="button" class="ed-link danger" data-rm="col|${i}">Remove</button></div>`;
+      ${solo ? '' : `<button type="button" class="ed-link danger" data-rm="col|${i}">Remove</button>`}</div>`;
+    };
     const pillRow = (p, i) => `<div class="ed-card" data-grp="pill" data-i="${i}"><div class="ed-2"><label class="ed-f"><span>Short name</span><input data-k="label" value="${esc(p.label)}" maxlength="12"></label>
         <label class="ed-f"><span>Yes/No column</span><select data-k="field">${fieldOpts('Production', p.field)}</select></label></div><button type="button" class="ed-link danger" data-rm="pill|${i}">Remove</button></div>`;
-    const render = b => {
-      b.innerHTML = `<div class="ed-2">${row('Section title', `<input id="ep-title" maxlength="60" value="${esc(W.title)}">`)}${row('Icon', `<input id="ep-icon" maxlength="4" value="${esc(W.icon)}">`)}</div>
-        <h4>Which lines</h4><div class="ed-lines">${lines.map(l => `<label class="ed-chk"><input type="checkbox" data-line="${esc(l)}"${(W.lines === 'all' || W.lines.includes(l)) ? ' checked' : ''}> <span>${esc(prodLineLabel(l))}</span></label>`).join('') || '<span class="ed-hint">Add your lines in plant-config.js</span>'}</div>
-        <h4>${chk('ep-left-show', 'Left block', W.left.show)}</h4>${row('Title', `<input id="ep-left-title" maxlength="60" value="${esc(W.left.title)}">`)}
-        <div class="ed-sub">Ready / not-ready ticks for each line</div>${W.left.pills.map(pillRow).join('')}<button type="button" class="ed-link" data-add="pill">+ Add a tick</button>
-        <h4>${chk('ep-right-show', 'Right block', W.right.show)}</h4>${row('Title', `<input id="ep-right-title" maxlength="60" value="${esc(W.right.title)}">`)}
+    const chartRow = (c, i, solo) => `<div class="ed-card" data-grp="chart" data-i="${i}">
+      <div class="ed-2">${row('Title', `<input data-k="title" value="${esc(c.title)}" maxlength="60">`)}${row('Style', `<select data-k="type">${opt('line', 'Lines', c.type === 'line')}${opt('bar', 'Bars', c.type === 'bar')}</select>`)}</div>
+      <div class="ed-2">${row('Data from', `<select data-k="sheet">${sheets.map(s => opt(s, s, s === c.sheet)).join('')}</select>`)}${row('Days to show', `<input type="number" data-k="days" min="3" max="120" value="${c.days}">`)}</div>
+      ${row('Which lines', `<select data-k="scope">${opt('all', 'All lines combined', c.scope === 'all')}${opt('split', 'One colour per line (uses the first measure)', c.scope === 'split')}${lines.map(l => opt(l, 'Only ' + prodLineLabel(l), c.scope === l)).join('')}</select>`)}
+      ${c.series.map((s, j) => `<div class="ed-ser" data-si="${j}"><div class="ed-3"><label class="ed-f"><span>Measure</span><select data-sk="field">${fieldOpts(c.sheet, s.field)}</select></label>
+        <label class="ed-f"><span>Name</span><input data-sk="label" value="${esc(s.label)}" maxlength="30"></label>
+        <label class="ed-f"><span>Combine rows as</span><select data-sk="agg">${selOf(s.agg, PROD_AGGS)}</select></label></div>
+        ${c.series.length > 1 ? `<button type="button" class="ed-link danger" data-rm="ser|${i}|${j}">Remove this measure</button>` : ''}</div>`).join('')}
+      ${c.series.length < 4 ? `<button type="button" class="ed-link" data-add="ser|${i}">+ Add a measure</button>` : ''}
+      ${solo ? '' : `<button type="button" class="ed-link danger" data-rm="chart|${i}">Remove chart</button>`}</div>`;
+
+    const secHead = () => {
+      const lo = W._lo || (W.lines === 'all' ? lines.slice() : W.lines.filter(l => lines.includes(l)).concat(lines.filter(l => !W.lines.includes(l))));
+      W._lo = lo;
+      return `<div class="ed-2">${row('Section title', `<input id="ep-title" maxlength="60" value="${esc(W.title)}">`)}${row('Icon', `<input id="ep-icon" maxlength="4" value="${esc(W.icon)}">`)}</div>
+        ${row('Layout', `<select id="ep-layout">${opt('side', 'Today on the left, yesterday on the right', W.layout === 'side')}${opt('stacked', 'Stacked, one under the other', W.layout === 'stacked')}</select>`)}
+        <h4>Which lines, in what order</h4><div class="ed-lines ed-linelist">${lo.map((l, i) => `<div class="ed-linerow"><label class="ed-chk"><input type="checkbox" data-line="${esc(l)}"${(W.lines === 'all' || W.lines.includes(l)) ? ' checked' : ''}> <span>${esc(prodLineLabel(l))}</span></label><span><button type="button" class="ed-btn sm" data-lmv="${i}|-1" aria-label="Move up">▲</button><button type="button" class="ed-btn sm" data-lmv="${i}|1" aria-label="Move down">▼</button></span></div>`).join('') || '<span class="ed-hint">Add your lines in plant-config.js</span>'}</div>
+        <h4>Order of the blocks on the right</h4>${W.blocks.map((k, i) => `<div class="ed-linerow" data-blk="${k}"><span>${esc(BLK_NAMES[k])}</span><span><button type="button" class="ed-btn sm" data-bmv="${i}|-1" aria-label="Move up">▲</button><button type="button" class="ed-btn sm" data-bmv="${i}|1" aria-label="Move down">▼</button></span></div>`).join('')}
+        <h4>${chk('ep-ld-show', 'Click a line to see its detail', W.lineDetail.show)}</h4>${row('Days of history in the detail charts', `<input id="ep-ld-days" type="number" min="3" max="60" value="${W.lineDetail.days}">`)}`;
+    };
+    const secLeft = () => `<h4>${chk('ep-left-show', 'Left block (today)', W.left.show)}</h4>${row('Title', `<input id="ep-left-title" maxlength="60" value="${esc(W.left.title)}">`)}
+        <div class="ed-sub">Ready / not-ready ticks for each line</div>${W.left.pills.map(pillRow).join('')}<button type="button" class="ed-link" data-add="pill">+ Add a tick</button>`;
+    const secTop = () => `<h4>${chk('ep-right-show', 'Right block (yesterday)', W.right.show)}</h4>${row('Title', `<input id="ep-right-title" maxlength="60" value="${esc(W.right.title)}">`)}
         <div class="ed-2">${row('Day shown by default', `<select id="ep-mode">${opt('yesterday', 'Yesterday', W.right.dateMode === 'yesterday')}${opt('today', 'Today', W.right.dateMode === 'today')}${opt('latest', 'Latest day with data', W.right.dateMode === 'latest')}</select>`)}
           <div>${chk('ep-picker', 'Let viewers pick a day', W.right.picker)}</div></div>
         <div class="ed-sub">Number tiles</div>${W.right.tiles.map((t, i) => tileRow(t, i, 'tile')).join('')}<button type="button" class="ed-link" data-add="tile">+ Add a tile</button>
-        <div class="ed-sub">${chk('ep-drv-show', 'Top downtime drivers box', W.right.drivers.show)}</div>${row('Box title', `<input id="ep-drv-title" maxlength="60" value="${esc(W.right.drivers.title)}">`)}
-        <div class="ed-sub">${chk('ep-tbl-show', 'Table of lines', W.right.table.show)}</div>${row('Table title', `<input id="ep-tbl-title" maxlength="40" value="${esc(W.right.table.title)}">`)}
-        ${W.right.table.columns.map(colRow).join('')}<button type="button" class="ed-link" data-add="col">+ Add a column</button>
-        <h4>${chk('ep-tot-show', 'Totals row', W.totals.show)}</h4>${W.totals.tiles.map((t, i) => tileRow(t, i, 'total')).join('')}<button type="button" class="ed-link" data-add="total">+ Add a total</button>
-        <p class="ed-hint">OEE, Downtime, Code Red and Code Yellow always come from L2L and can’t be typed over. Stays in your draft until you press <b>Save for everyone</b>.</p>`;
+        <div class="ed-sub">${chk('ep-drv-show', 'Top downtime drivers box', W.right.drivers.show)}</div>${row('Box title', `<input id="ep-drv-title" maxlength="60" value="${esc(W.right.drivers.title)}">`)}`;
+    const secTable = () => `<h4>${chk('ep-tbl-show', 'Table of lines', W.right.table.show)}</h4>${row('Table title', `<input id="ep-tbl-title" maxlength="40" value="${esc(W.right.table.title)}">`)}
+        ${W.right.table.columns.map(colRow).join('')}<button type="button" class="ed-link" data-add="col">+ Add a column</button>`;
+    const secCharts = () => `<h4>Charts</h4>${W.right.charts.map((c, i) => chartRow(c, i)).join('') || '<p class="ed-hint">No charts yet.</p>'}${W.right.charts.length < 4 ? '<button type="button" class="ed-link" data-add="chart">+ Add a chart</button>' : ''}`;
+    const secTotals = () => `<h4>${chk('ep-tot-show', 'Totals row', W.totals.show)}</h4>${W.totals.tiles.map((t, i) => tileRow(t, i, 'total')).join('')}<button type="button" class="ed-link" data-add="total">+ Add a total</button>`;
+    const SECS = { head: secHead, left: secLeft, top: secTop, table: secTable, charts: secCharts, totals: secTotals };
+    const hint = '<p class="ed-hint">OEE, Downtime, Code Red and Code Yellow always come from L2L and can’t be typed over. Stays in your draft until you press <b>Save for everyone</b>.</p>';
+    const listOf = g => g === 'tile' ? W.right.tiles : g === 'total' ? W.totals.tiles : g === 'col' ? W.right.table.columns : g === 'chart' ? W.right.charts : W.left.pills;
+    const render = b => {
+      if (only.grp) { const o = listOf(only.grp)[only.i]; b.innerHTML = !o ? '<p class="ed-hint">That item no longer exists.</p>' : only.grp === 'chart' ? chartRow(o, only.i, true) : only.grp === 'col' ? colRow(o, only.i, true) : only.grp === 'pill' ? pillRow(o, only.i) : tileRow(o, only.i, only.grp, true); b.insertAdjacentHTML('beforeend', hint); return; }
+      b.innerHTML = (only.sec ? SECS[only.sec]() : ['head', 'left', 'top', 'table', 'charts', 'totals'].map(k => SECS[k]()).join('')) + hint;
     };
-    const pull = b => {   // read every input back into W
-      W.title = $('#ep-title', b).value; W.icon = $('#ep-icon', b).value;
-      const picked = $$('[data-line]', b).filter(x => x.checked).map(x => x.dataset.line);
-      W.lines = picked.length === lines.length ? 'all' : picked;
-      W.left.show = $('#ep-left-show', b).checked; W.left.title = $('#ep-left-title', b).value;
-      W.right.show = $('#ep-right-show', b).checked; W.right.title = $('#ep-right-title', b).value; W.right.dateMode = $('#ep-mode', b).value; W.right.picker = $('#ep-picker', b).checked;
-      W.right.drivers.show = $('#ep-drv-show', b).checked; W.right.drivers.title = $('#ep-drv-title', b).value;
-      W.right.table.show = $('#ep-tbl-show', b).checked; W.right.table.title = $('#ep-tbl-title', b).value; W.totals.show = $('#ep-tot-show', b).checked;
-      const listOf = g => g === 'tile' ? W.right.tiles : g === 'total' ? W.totals.tiles : g === 'col' ? W.right.table.columns : W.left.pills;
-      $$('.ed-card', b).forEach(c => { const o = listOf(c.dataset.grp)[+c.dataset.i]; if (!o) return; $$('[data-k]', c).forEach(inp => { o[inp.dataset.k] = inp.value; }); });
+    const pull = b => {   // read every input back into W (works for the whole form, one block or one item)
+      const el = id => $('#' + id, b);
+      if (el('ep-title')) W.title = el('ep-title').value;
+      if (el('ep-icon')) W.icon = el('ep-icon').value;
+      if (el('ep-layout')) W.layout = el('ep-layout').value;
+      const lr = $$('[data-line]', b);
+      if (lr.length) { const order = lr.map(x => x.dataset.line); W._lo = order; const picked = lr.filter(x => x.checked).map(x => x.dataset.line); W.lines = (picked.length === lines.length && picked.every((l, i) => l === lines[i])) ? 'all' : picked; }
+      const br = $$('[data-blk]', b); if (br.length) W.blocks = br.map(x => x.dataset.blk);
+      if (el('ep-ld-show')) W.lineDetail.show = el('ep-ld-show').checked;
+      if (el('ep-ld-days')) W.lineDetail.days = Number(el('ep-ld-days').value) || 14;
+      if (el('ep-left-show')) W.left.show = el('ep-left-show').checked;
+      if (el('ep-left-title')) W.left.title = el('ep-left-title').value;
+      if (el('ep-right-show')) W.right.show = el('ep-right-show').checked;
+      if (el('ep-right-title')) W.right.title = el('ep-right-title').value;
+      if (el('ep-mode')) W.right.dateMode = el('ep-mode').value;
+      if (el('ep-picker')) W.right.picker = el('ep-picker').checked;
+      if (el('ep-drv-show')) W.right.drivers.show = el('ep-drv-show').checked;
+      if (el('ep-drv-title')) W.right.drivers.title = el('ep-drv-title').value;
+      if (el('ep-tbl-show')) W.right.table.show = el('ep-tbl-show').checked;
+      if (el('ep-tbl-title')) W.right.table.title = el('ep-tbl-title').value;
+      if (el('ep-tot-show')) W.totals.show = el('ep-tot-show').checked;
+      $$('.ed-card', b).forEach(c => {
+        const o = listOf(c.dataset.grp)[+c.dataset.i]; if (!o) return;
+        $$('[data-k]', c).forEach(inp => { o[inp.dataset.k] = inp.value; });
+        if (c.dataset.grp === 'chart') o.series = $$('.ed-ser', c).map(r => { const s = {}; $$('[data-sk]', r).forEach(inp => { s[inp.dataset.sk] = inp.value; }); return s; });
+        if ('tbetter' in o) {
+          const k = c.dataset.pctui === '1' ? 0.01 : 1, rd = x => Math.round(x * 1e6) / 1e6;
+          if (o.tbetter && o.tred !== '' && o.tamber !== '') o.target = { better: o.tbetter, red: rd(+o.tred * k), amber: rd(+o.tamber * k) }; else delete o.target;
+          delete o.tbetter; delete o.tred; delete o.tamber;
+          if (c.dataset.grp === 'col') {
+            const pl = {}; $$('[data-pl]', c).forEach(inp => { const l = inp.dataset.pl; (pl[l] = pl[l] || {})[inp.dataset.pk] = inp.value; });
+            const out = {}; Object.keys(pl).forEach(l => { if (o.target && pl[l].red !== '' && pl[l].amber !== '') out[l] = { better: o.target.better, red: rd(+pl[l].red * k), amber: rd(+pl[l].amber * k) }; });
+            if (Object.keys(out).length) o.perLine = out; else delete o.perLine;
+          }
+        }
+      });
     };
+    const title = only.grp ? ({ tile: 'This number', total: 'This total', col: 'This column', chart: 'This chart', pill: 'This tick' }[only.grp]) : only.sec ? ({ head: 'Production: layout and lines', left: 'Production: today block', top: 'Production: yesterday block', table: 'Production: table of lines', charts: 'Production: charts', totals: 'Production: totals' }[only.sec]) : 'Customize Production Summary';
     Insp.open({
-      title: 'Customize Production Summary', anchor, wide: true, applyLabel: 'Apply',
+      title, anchor, wide: !(only.grp || only.sec === 'totals'), applyLabel: 'Apply',
       build(b) {
         render(b);
-        b.addEventListener('change', e => { if (e.target.matches('[data-k="sheet"]')) { pull(b); const c = e.target.closest('.ed-card'), o = (c.dataset.grp === 'tile' ? W.right.tiles : W.totals.tiles)[+c.dataset.i]; o.field = getAvailableFields(o.sheet)[0] || ''; render(b); } });
+        b.addEventListener('change', e => {
+          if (e.target.matches('[data-k="sheet"]')) {
+            pull(b); const c = e.target.closest('.ed-card'), g = c.dataset.grp, i = +c.dataset.i;
+            if (g === 'chart') { const o = W.right.charts[i]; o.series.forEach(s => { s.field = getAvailableFields(o.sheet)[0] || ''; }); }
+            else { const o = listOf(g)[i]; o.field = getAvailableFields(o.sheet)[0] || ''; }
+            render(b);
+          } else if (e.target.matches('[data-k="format"]')) { pull(b); render(b); }
+        });
         b.addEventListener('click', e => {
-          const add = e.target.closest('[data-add]'), rm = e.target.closest('[data-rm]');
-          if (!add && !rm) return; pull(b);
-          if (add) {
-            const k = add.dataset.add;
-            if (k === 'tile') W.right.tiles.push({ id: 'ptile-' + Date.now().toString(36), label: 'New tile', sheet: 'Production', field: getAvailableFields('Production')[0] || '', agg: 'last', format: 'number', date: 'selected' });
-            if (k === 'total') W.totals.tiles.push({ id: 'ptotal-' + Date.now().toString(36), label: 'New total', sheet: 'Production', field: getAvailableFields('Production')[0] || '', agg: 'sum', format: 'number', date: 'latest' });
-            if (k === 'col') W.right.table.columns.push({ label: 'New', field: getAvailableFields('Production')[0] || '', agg: 'avg', format: 'number', date: 'selected' });
-            if (k === 'pill') W.left.pills.push({ label: 'NEW', field: getAvailableFields('Production')[0] || '' });
+          const add = e.target.closest('[data-add]'), rm = e.target.closest('[data-rm]'), lm = e.target.closest('[data-lmv]'), bm = e.target.closest('[data-bmv]');
+          if (!add && !rm && !lm && !bm) return; pull(b);
+          const swap = (a, i, j) => { if (j >= 0 && j < a.length) a.splice(j, 0, a.splice(i, 1)[0]); };
+          if (lm) { const [i, d] = lm.dataset.lmv.split('|').map(Number); swap(W._lo, i, i + d); const picked = W._lo.filter(l => W.lines === 'all' || W.lines.includes(l)); W.lines = (picked.length === lines.length && picked.every((l, k) => l === lines[k])) ? 'all' : picked; }
+          else if (bm) { const [i, d] = bm.dataset.bmv.split('|').map(Number); swap(W.blocks, i, i + d); }
+          else if (add) {
+            const [k, ci] = add.dataset.add.split('|');
+            if (k === 'tile') W.right.tiles.push(newTile('tile'));
+            if (k === 'total') W.totals.tiles.push(newTile('total'));
+            if (k === 'col') W.right.table.columns.push(newCol());
+            if (k === 'pill') W.left.pills.push({ label: 'NEW', field: firstField() });
+            if (k === 'chart') W.right.charts.push(newChart());
+            if (k === 'ser') W.right.charts[+ci].series.push({ label: '', field: firstField(W.right.charts[+ci].sheet), agg: 'avg' });
           } else {
-            const [g, i] = rm.dataset.rm.split('|'); (g === 'tile' ? W.right.tiles : g === 'total' ? W.totals.tiles : g === 'col' ? W.right.table.columns : W.left.pills).splice(+i, 1);
+            const [g, i, j] = rm.dataset.rm.split('|');
+            if (g === 'ser') W.right.charts[+i].series.splice(+j, 1); else listOf(g).splice(+i, 1);
           }
           render(b);
         });
       },
-      onApply(b) {
-        pull(b);
-        const clean = prodSanitize(W), def = prodSanitize(window.PLANT_CONFIG.productionSummary || PROD_DEFAULT);
-        lsChange(d => { d.prod = JSON.stringify(clean) === JSON.stringify(def) ? null : clean; });
-      },
-      extra: [{ label: 'Back to default', cls: 'danger', onClick() { lsChange(d => { d.prod = null; }); } }]
+      onApply(b) { pull(b); prodCommit(W); },
+      extra: only.grp ? [] : [{ label: 'Back to default', cls: 'danger', onClick() { lsChange(d => { d.prod = null; }); } }]
     });
+  }
+  // The little controls shown on the Production section itself.
+  function prodClick(el) {
+    const D = el.dataset, swap = (a, i, j) => { if (j >= 0 && j < a.length) a.splice(j, 0, a.splice(i, 1)[0]); };
+    if (D.pblkmv) {
+      const [k, dir] = D.pblkmv.split('|'), d = Number(dir);
+      prodMutate(W => {
+        const vis = $$('#prod-body [data-pblk]').map(x => x.dataset.pblk).filter(x => x !== 'left'), nb = vis[vis.indexOf(k) + d];
+        if (!nb) return; W.blocks.splice(W.blocks.indexOf(k), 1); W.blocks.splice(W.blocks.indexOf(nb) + (d > 0 ? 1 : 0), 0, k);
+      });
+    }
+    else if (D.pset) productionForm(el, { sec: D.pset === 'left' ? 'left' : D.pset });
+    else if (D.ptile) { const [g, i] = D.ptile.split('|'); productionForm(el, { grp: g, i: +i }); }
+    else if (D.pmv) { const [g, i, dir] = D.pmv.split('|'); prodMutate(W => swap(g === 'total' ? W.totals.tiles : W.right.tiles, +i, +i + Number(dir))); }
+    else if (D.prm) { const [g, i] = D.prm.split('|'); prodMutate(W => { (g === 'total' ? W.totals.tiles : W.right.tiles).splice(+i, 1); }); }
+    else if (D.pcol !== undefined) productionForm(el, { grp: 'col', i: +D.pcol });
+    else if (D.pcolmv) { const [i, dir] = D.pcolmv.split('|'); prodMutate(W => swap(W.right.table.columns, +i, +i + Number(dir))); }
+    else if (D.pchartset !== undefined) productionForm(el, { grp: 'chart', i: +D.pchartset });
+    else if (D.pchartmv) { const [i, dir] = D.pchartmv.split('|'); prodMutate(W => swap(W.right.charts, +i, +i + Number(dir))); }
+    else if (D.pchartrm !== undefined) prodMutate(W => { W.right.charts.splice(+D.pchartrm, 1); });
+    else if (D.padd) {
+      const k = D.padd;
+      prodMutate(W => { if (k === 'tile') W.right.tiles.push(newTile('tile')); if (k === 'total') W.totals.tiles.push(newTile('total')); if (k === 'col') W.right.table.columns.push(newCol()); if (k === 'chart') W.right.charts.push(newChart()); });
+      const W = prodCurrent(), at = $('.ed-prodadd') || el;
+      if (k === 'tile') productionForm(at, { grp: 'tile', i: W.right.tiles.length - 1 });
+      if (k === 'total') productionForm(at, { grp: 'total', i: W.totals.tiles.length - 1 });
+      if (k === 'col') productionForm(at, { grp: 'col', i: W.right.table.columns.length - 1 });
+      if (k === 'chart') productionForm(at, { grp: 'chart', i: W.right.charts.length - 1 });
+    }
   }
 
   // ═══ Decorating the real page ═════════════════════════════════════════
@@ -340,6 +457,7 @@
     });
     LS_BUILTIN = layItems();
     LS_BUILTIN.forEach(it => it.boxes.forEach(b => {
+      if (b.el.closest('#prod-body')) return;   // Production has its own controls (below)
       const key = b.key, off = hidden.has(key), src = d.src[key];
       const ctl = mk('span', 'ed-x ed-tilectl' + (src ? ' fed' : ''), `<button type="button" data-tile="${esc(key)}" data-label="${esc(b.label)}" title="Change this number">⚙</button><button type="button" data-hide="${esc(key)}" title="${off ? 'Show this number again' : 'Hide this number'}">${off ? '↺' : '×'}</button>`);
       b.el.appendChild(ctl);
@@ -354,6 +472,14 @@
       wrap.appendChild(mk('span', 'ed-x ed-tilectl', `<button type="button" data-tile="${esc(key)}" data-label="${esc(label)}" title="Change what this chart shows (${esc(label)})" aria-label="Change what this chart shows">⚙</button>`));
       wrap.classList.toggle('ed-fed', !!src);
     });
+    const pbody = $('#prod-body');
+    if (pbody && typeof PROD_CFG === 'object' && PROD_CFG) {
+      $$('[data-pblk]', pbody).forEach(blk => { const k = blk.dataset.pblk; blk.appendChild(mk('span', 'ed-x ed-tilectl ed-blkctl', (k === 'left' ? '' : `<button type="button" data-pblkmv="${k}|-1" title="Move this block up" aria-label="Move this block up">▲</button><button type="button" data-pblkmv="${k}|1" title="Move this block down" aria-label="Move this block down">▼</button>`) + `<button type="button" data-pset="${k === 'top' ? 'top' : k}" title="Change this block" aria-label="Change this block">⚙</button>`)); });
+      $$('.metric-box[data-pgrp]', pbody).forEach(bx => { const g = bx.dataset.pgrp, i = bx.dataset.pi; bx.appendChild(mk('span', 'ed-x ed-tilectl', `<button type="button" data-ptile="${g}|${i}" title="Change this number" aria-label="Change this number">⚙</button><button type="button" data-pmv="${g}|${i}|-1" title="Move earlier" aria-label="Move earlier">◂</button><button type="button" data-pmv="${g}|${i}|1" title="Move later" aria-label="Move later">▸</button><button type="button" data-prm="${g}|${i}" title="Remove" aria-label="Remove">×</button>`)); });
+      $$('th[data-pci]', pbody).forEach(th => { const i = th.dataset.pci; th.appendChild(mk('span', 'ed-x ed-thctl', `<button type="button" data-pcol="${i}" title="Change this column" aria-label="Change this column">⚙</button><button type="button" data-pcolmv="${i}|-1" title="Move left" aria-label="Move column left">◂</button><button type="button" data-pcolmv="${i}|1" title="Move right" aria-label="Move column right">▸</button>`)); });
+      $$('.chart-wrap[data-pchart]', pbody).forEach(w => { const i = w.dataset.pchart; w.appendChild(mk('span', 'ed-x ed-tilectl', `<button type="button" data-pchartset="${i}" title="Change this chart" aria-label="Change this chart">⚙</button><button type="button" data-pchartmv="${i}|-1" title="Move earlier" aria-label="Move earlier">◂</button><button type="button" data-pchartmv="${i}|1" title="Move later" aria-label="Move later">▸</button><button type="button" data-pchartrm="${i}" title="Remove" aria-label="Remove chart">×</button>`)); });
+      pbody.appendChild(mk('div', 'ed-x ed-prodadd', '<button type="button" data-padd="tile">+ Tile</button><button type="button" data-padd="col">+ Table column</button><button type="button" data-padd="chart">+ Chart</button><button type="button" data-padd="total">+ Total</button><button type="button" data-pset="head">⚙ Layout and lines</button>'));
+    }
     $$('.custom-widget').forEach(w => {
       const id = w.id.replace(/^cw-/, '');
       w.appendChild(mk('span', 'ed-x ed-tilectl', `<button type="button" data-cwedit="${esc(id)}" title="Edit">✎</button><button type="button" data-cwrm="${esc(id)}" title="Remove">×</button>`));
@@ -604,6 +730,8 @@
       }
       return;
     }
+    const pq = e.target.closest('[data-pblkmv],[data-pset],[data-ptile],[data-pmv],[data-prm],[data-pcol],[data-pcolmv],[data-pchartset],[data-pchartmv],[data-pchartrm],[data-padd]');
+    if (pq && !pq.closest('#ed-insp')) { e.preventDefault(); e.stopPropagation(); prodClick(pq); return; }
     const add = e.target.closest('.ed-add');
     if (add) { e.preventDefault(); if (add.dataset.add === 'panel-highlights') highlightForm(null, add); else widgetForm(add.dataset.add, null, add); return; }
     const t = e.target.closest('[data-tile]'); if (t) { e.preventDefault(); tileForm(t.dataset.tile, t.dataset.label, t); return; }

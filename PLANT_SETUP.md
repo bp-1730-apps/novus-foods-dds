@@ -33,27 +33,42 @@ and the first line stays `window.PLANT_CONFIG = `.
 - `coreValues`: leave `[]` to hide the Core Values pages.
 - `sources`: turn on only what you have. Data Entry is always on.
 
-## 4. Become the first admin
+## 4. Become the first super-admin
 
 1. Open your site and choose "New here? Request an account" with your work email (confirm it if asked).
 2. In Supabase SQL Editor run:
 
    `select public.bootstrap_admin('you@company.com');`
 
-   This works only while the plant has no admin yet.
-3. Sign in again. You now see Team in the menu.
+   This works only while there is no super-admin yet.
+3. Sign in. Because the project has no plants yet, you land on the **Plants** page. Click **Create plant** (name, ID, location, production lines). You are automatically an admin of every plant.
+
+The plant ID you choose is stored on every row of that plant's data and can never change. Use something short and permanent, like the plant number.
 
 ## 5. Add your people
 
-On the Team page, people who created an account appear under pending. Pick a role
-(viewer, editor, admin) and approve. Anyone not approved can't read plant data.
+On the Team page of a plant, people who created an account appear under "Waiting for approval". Pick a role
+(viewer, editor, admin) and approve. Anyone not approved can't read any plant's data. Viewers can look, editors can type Data Entry values and post announcements, and only admins can change the dashboard layout, columns, KPIs and people.
+
+### Several plants in one project
+
+One Supabase project can hold any number of plants. Each plant has its own data, layout, columns, announcements and people, and a person can have a different role in each.
+
+- **Super-admins** (the Plants page) create and delete plants, edit a plant's name, location and lines, assign people to any plant, and make other super-admins. A super-admin is an admin of every plant.
+- **Plant admins** manage only their own plant: its layout, columns and people.
+- People who belong to more than one plant get a plant switcher in the top menu. A plant remembers nothing of the others: switching reloads the page on that plant.
+- "Start from" when creating a plant copies another plant's setup (Data Entry columns and departments, dashboard layout, panel settings). Entered numbers, announcements, people and custom panels are never copied.
+- **Deleting a plant is permanent and immediate.** You must type its ID. Everything that belongs to it is erased; people's accounts stay. The last remaining plant cannot be deleted.
+- Power Automate and L2L feeds are configured in `plant-config.js` and belong to the plant whose ID is in that file. Other plants start with those feeds off and use Data Entry. The L2L sync script writes one plant's file.
+- Upgrading from the one-plant version: re-run `data_entries.sql`. Existing admins become super-admins, and existing people and data are attached to the plant that already holds your data. Fill in its name on the Plants page (until then the site keeps using the name from `plant-config.js`).
 
 ## 6. Make the dashboard yours
 
 Open the dashboard, press **Edit dashboard**, then the menu on the bottom bar >
-**Ready-made layouts** (Blank, Basic operations). Drag sections by the
+**Ready-made layouts** (over twenty: SQDC stand-up, production floor, maintenance, quality, warehouse, safety, scoreboard, weekly review, lean huddle and more). Drag sections by the
 grip, resize from the corner, press the pencil on a number to rename it or choose where
 its value comes from, and **Save**. Save keeps a history you can restore.
+The Production Summary is the most flexible section: in edit mode each tile, table column and chart has its own ⚙ and ◂ ▸ buttons, each block has ▲ ▼ to reorder, and the strip at the bottom adds tiles, columns, charts and totals. Any number or column can have goal colours (red/amber/green), columns can have different goals per line, and viewers can click a line name to see its detail and recent history.
 **Export** gives you a layout file to share with another plant; **Import** loads one.
 
 ## 7. Daily numbers and Weekly KPIs

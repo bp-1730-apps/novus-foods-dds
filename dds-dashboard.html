@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <script src="plant-config.js"></script>
+  <script src="plant-context.js"></script>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>DDS Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -222,6 +223,22 @@
     .prod-split { display:grid; grid-template-columns:1fr 1.8fr; gap:20px; }
     .prod-split.prod-one { grid-template-columns:1fr; }
     .prod-totals .metric-box { flex:1 1 140px; min-width:0; }
+    .prod-charts { margin-top:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }
+    .prod-charts .chart-wrap[data-empty="1"]::after { content:'No data in this range yet'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.75rem; color:var(--ink3); }
+    .prod-charts .chart-wrap { position:relative; }
+    .prod-linelink { cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; }
+    .prod-linelink:hover, .prod-linelink:focus-visible { color:var(--green-d); outline:none; }
+    .prod-tip { margin-top:4px; font-size:.65rem; color:var(--ink3); }
+    .metric-value.ptone-green { color:#047857 !important; } .metric-value.ptone-amber { color:#b45309 !important; } .metric-value.ptone-red { color:#b91c1c !important; }
+    .prod-goal { font-size:.62rem; color:var(--ink3); margin-top:2px; }
+    #prod-line-modal { position:fixed; inset:0; z-index:10010; background:rgba(15,23,42,.55); display:flex; align-items:center; justify-content:center; padding:12px; }
+    .plm-card { background:var(--surface); color:var(--ink); border-radius:14px; width:min(820px,100%); max-height:92vh; display:flex; flex-direction:column; box-shadow:0 24px 70px rgba(15,23,42,.45); overflow:hidden; }
+    .plm-head { display:flex; align-items:center; gap:12px; padding:12px 16px; background:linear-gradient(135deg,var(--green-d),var(--green)); color:#fff; }
+    .plm-head strong { font-size:1.05rem; } .plm-sub { flex:1; font-size:.72rem; opacity:.85; }
+    .plm-x { border:1px solid rgba(255,255,255,.4); background:rgba(255,255,255,.15); color:#fff; border-radius:8px; min-width:34px; min-height:34px; cursor:pointer; font-size:1rem; }
+    .plm-body { padding:14px 16px; overflow-y:auto; display:grid; gap:12px; }
+    .plm-pills { display:flex; flex-wrap:wrap; gap:6px; }
+    .plm-charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
     .l2l-badge { font-size:.55rem; font-weight:800; letter-spacing:.05em; padding:1px 4px; border-radius:3px; background:rgba(59,130,246,.12); color:#1d4ed8; vertical-align:middle; }
     @media (max-width:900px){ .prod-split { grid-template-columns:1fr; } }
     .timeframe-block { padding:9px 14px; border-radius:var(--radius-sm); display:flex; flex-direction:column; align-items:center; margin-bottom:12px; }
@@ -708,25 +725,47 @@ function prodSanitize(raw){
   const fmt = (v, d)=> PROD_FORMATS[v] ? v : d;
   const agg = (v, d)=> PROD_AGGS[v] ? v : d;
   const dt  = (v, d)=> (v==='latest'||v==='selected') ? v : d;
+  const num = v=> (v===''||v==null) ? NaN : Number(v);
+  // A goal: which way is better, and the two colour boundaries. (Old "thresholds" still load.)
+  const tgt = (x, legacy)=>{
+    if(x && typeof x==='object'){ const a=num(x.red), b=num(x.amber); if(Number.isFinite(a)&&Number.isFinite(b)) return { better:x.better==='down'?'down':'up', red:a, amber:b }; }
+    if(legacy && typeof legacy==='object'){ const a=num(legacy.redMax), b=num(legacy.amberMax); if(Number.isFinite(a)&&Number.isFinite(b)) return { better:'up', red:a, amber:b }; }
+    return null;
+  };
   const used = new Set();
+  const uid = (raw, pre, i)=>{ let id = (typeof raw==='string' && /^[a-z][a-z0-9-]{1,40}$/.test(raw)) ? raw : (pre + '-' + (i+1)); while(used.has(id)) id += 'x'; used.add(id); return id; };
   const tile = (t, i, pre)=>{
     t = (t && typeof t==='object') ? t : {};
-    let id = (typeof t.id==='string' && /^[a-z][a-z0-9-]{1,40}$/.test(t.id)) ? t.id : (pre + '-' + (i+1));
-    while(used.has(id)) id += 'x';
-    used.add(id);
-    return { id, label:str(t.label,'Metric',40), sheet:str(t.sheet,'Production',60), field:str(t.field,'',80),
-             agg:agg(t.agg,'last'), format:fmt(t.format,'number'), date:dt(t.date,'selected') };
+    const o = { id:uid(t.id, pre, i), label:str(t.label,'Metric',40), sheet:str(t.sheet,'Production',60), field:str(t.field,'',80),
+                agg:agg(t.agg,'last'), format:fmt(t.format,'number'), date:dt(t.date,'selected') };
+    const g = tgt(t.target); if(g) o.target = g;
+    return o;
   };
   const col = (c)=>{
     c = (c && typeof c==='object') ? c : {};
     const o = { label:str(c.label,'Column',24), field:str(c.field,'',80), agg:agg(c.agg,'avg'), format:fmt(c.format,'number'), date:dt(c.date,'selected') };
-    if(c.thresholds && Number.isFinite(+c.thresholds.redMax) && Number.isFinite(+c.thresholds.amberMax)) o.thresholds = { redMax:+c.thresholds.redMax, amberMax:+c.thresholds.amberMax };
+    const g = tgt(c.target, c.thresholds); if(g) o.target = g;
+    if(g && c.perLine && typeof c.perLine==='object'){
+      const pl = {}; Object.keys(c.perLine).slice(0,40).forEach(k=>{ const t = tgt(c.perLine[k]); if(t){ t.better = g.better; pl[k] = t; } });
+      if(Object.keys(pl).length) o.perLine = pl;
+    }
     return o;
   };
-  const L = r.left || {}, R = r.right || {}, T = r.totals || {};
+  const chart = (c, i)=>{
+    c = (c && typeof c==='object') ? c : {};
+    return { id:uid(c.id,'pchart',i), title:str(c.title,'Trend',60), type:c.type==='bar'?'bar':'line', sheet:str(c.sheet,'Production',60), scope:str(c.scope,'all',40),
+             days:Math.min(120, Math.max(3, Math.round(+c.days||30))),
+             series:(Array.isArray(c.series)?c.series:[]).slice(0,4).map(s=>({ field:str(s&&s.field,'',80), agg:agg(s&&s.agg,'avg'), label:str(s&&s.label, str(s&&s.field,'Value',30), 30) })).filter(s=>s.field) };
+  };
+  const BL = ['top','table','charts','totals'];
+  const blocks = (Array.isArray(r.blocks)?r.blocks:[]).filter((x,i,a)=>BL.includes(x) && a.indexOf(x)===i);
+  BL.forEach(x=>{ if(!blocks.includes(x)) blocks.push(x); });
+  const L = r.left || {}, R = r.right || {}, T = r.totals || {}, LD = r.lineDetail || {};
   const lines = (r.lines==='all' || !Array.isArray(r.lines)) ? 'all' : r.lines.map(x=>String(x)).filter(Boolean);
   const out = {
     title:str(r.title,D.title,60), icon:typeof r.icon==='string' ? r.icon.slice(0,8) : D.icon, lines,
+    layout:r.layout==='stacked'?'stacked':'side', blocks,
+    lineDetail:{ show:bool(LD.show,true), days:Math.min(60, Math.max(3, Math.round(+LD.days||14))) },
     left:{ show:bool(L.show,true), title:str(L.title,D.left.title,60),
            pills:(Array.isArray(L.pills)?L.pills:D.left.pills).slice(0,6).map(p=>({ label:str(p&&p.label,'',12), field:str(p&&p.field,'',80) })).filter(p=>p.label&&p.field) },
     right:{ show:bool(R.show,true), title:str(R.title,D.right.title,60),
@@ -735,7 +774,8 @@ function prodSanitize(raw){
             drivers:{ show:bool(R.drivers&&R.drivers.show,true), title:str(R.drivers&&R.drivers.title,D.right.drivers.title,60),
                       fields:(Array.isArray(R.drivers&&R.drivers.fields)?R.drivers.fields:D.right.drivers.fields).map(x=>str(x,'',80)).filter(Boolean).slice(0,6) },
             table:{ show:bool(R.table&&R.table.show,true), title:str(R.table&&R.table.title,D.right.table.title,40),
-                    columns:(Array.isArray(R.table&&R.table.columns)?R.table.columns:D.right.table.columns).slice(0,8).map(col).filter(c=>c.field) } },
+                    columns:(Array.isArray(R.table&&R.table.columns)?R.table.columns:D.right.table.columns).slice(0,8).map(col).filter(c=>c.field) },
+            charts:(Array.isArray(R.charts)?R.charts:[]).slice(0,4).map(chart).filter(c=>c.series.length) },
     totals:{ show:bool(T.show,true), tiles:(Array.isArray(T.tiles)?T.tiles:D.totals.tiles).slice(0,8).map((t,i)=>tile(t,i,'ptotal')).filter(t=>t.field) }
   };
   return out;
@@ -785,42 +825,130 @@ function prodSelectedDs(cfg){
   if(m==='today'){ const t=new Date(); return `${t.getFullYear()}-${p2(t.getMonth()+1)}-${p2(t.getDate())}`; }
   return yesterdayStr();
 }
-function prodTileHtml(t){
+function prodTileHtml(t, i, grp){
   const owned = prodIsL2L(t.sheet, t.field);
-  return `<div class="metric-box"><div class="metric-label">${cwEsc(t.label)}${owned?' <span class="l2l-badge" title="Filled automatically from L2L">L2L</span>':''}</div>`+
+  return `<div class="metric-box" data-pgrp="${grp}" data-pi="${i}"><div class="metric-label">${cwEsc(t.label)}${owned?' <span class="l2l-badge" title="Filled automatically from L2L">L2L</span>':''}</div>`+
          `<div class="metric-value" id="${t.id}" contenteditable="true" oninput="saveManual(this.id)">—</div></div>`;
 }
-// Draws the empty frame (titles, tiles, table header). Values are filled by prodRender().
+// Draws the empty frame (titles, tiles, table header, chart boxes). Values are filled by prodRender().
 function prodBuild(cfg){
   const sig = JSON.stringify(cfg) + '|' + prodLineList(cfg).join(',');
   const body = document.getElementById('prod-body'); if(!body) return;
   if(sig===PROD_SIG) return;
   PROD_SIG = sig;
   const tt = document.getElementById('prod-title'); if(tt) tt.textContent = (cfg.icon?cfg.icon+' ':'') + cfg.title;
-  const L = cfg.left, R = cfg.right;
-  const left = !L.show ? '' : `<div>
+  const L = cfg.left, R = cfg.right, ld = cfg.lineDetail.show;
+  const left = !L.show ? '' : `<div data-pblk="left">
       <div class="timeframe-block tf-today"><div class="timeframe-title">${cwEsc(L.title)}</div><div class="timeframe-date" id="today-date-label">—</div></div>
       <div class="split-row"><div class="split-col"><div class="col-label">Lines</div><div class="readiness-stack" id="readiness-lines"></div></div></div>
     </div>`;
-  const tiles = R.tiles.map(prodTileHtml).join('');
+  const tiles = R.tiles.map((t,i)=>prodTileHtml(t,i,'tile')).join('');
   const drivers = !R.drivers.show ? '' : `<div style="flex:2;min-width:180px"><div class="section-label">${cwEsc(R.drivers.title)}</div><div class="drivers-box alert" id="top-drivers">Scanning data…</div></div>`;
-  const table = !(R.table.show && R.table.columns.length) ? '' : `<div class="split-row" style="margin-top:12px;"><div class="split-col"><div class="col-label">${cwEsc(R.table.title)}</div>
-      <table class="data-table"><thead><tr><th>Line</th>${R.table.columns.map(c=>`<th>${cwEsc(c.label)}${prodIsL2L('Production',c.field)?' <span class="l2l-badge" title="Filled automatically from L2L">L2L</span>':''}</th>`).join('')}</tr></thead><tbody id="tbody-lines"></tbody></table></div></div>`;
-  const totals = !(cfg.totals.show && cfg.totals.tiles.length) ? '' : `<div class="metric-row prod-totals" style="margin-top:12px;">${cfg.totals.tiles.map(prodTileHtml).join('')}</div>`;
+  const blk = {};
+  blk.top = (tiles||drivers) ? `<div data-pblk="top"><div class="metric-row" style="flex-wrap:wrap;">${tiles}${drivers}</div></div>` : '';
+  blk.table = !(R.table.show && R.table.columns.length) ? '' : `<div data-pblk="table"><div class="split-row" style="margin-top:12px;"><div class="split-col"><div class="col-label">${cwEsc(R.table.title)}</div>
+      <table class="data-table"><thead><tr><th>Line</th>${R.table.columns.map((c,i)=>`<th data-pci="${i}">${cwEsc(c.label)}${prodIsL2L('Production',c.field)?' <span class="l2l-badge" title="Filled automatically from L2L">L2L</span>':''}</th>`).join('')}</tr></thead><tbody id="tbody-lines"></tbody></table>${ld?'<div class="prod-tip">Click a line name to see its detail.</div>':''}</div></div></div>`;
+  blk.charts = !R.charts.length ? '' : `<div data-pblk="charts" class="prod-charts">${R.charts.map((c,i)=>`<div class="chart-wrap" data-pchart="${i}" style="height:190px;"><canvas id="pc-${c.id}"></canvas></div>`).join('')}</div>`;
+  blk.totals = !(cfg.totals.show && cfg.totals.tiles.length) ? '' : `<div data-pblk="totals"><div class="metric-row prod-totals" style="margin-top:12px;">${cfg.totals.tiles.map((t,i)=>prodTileHtml(t,i,'total')).join('')}</div></div>`;
   const picker = !R.picker ? '' : `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;font-size:11px;">
         <input type="date" id="prod-date-picker" onchange="setProdDate(this.value)" style="font:inherit;padding:2px 6px;">
         <a href="javascript:void(0)" onclick="setProdDate(null)" style="text-decoration:underline;cursor:pointer;white-space:nowrap;">Use default</a></div>`;
   const right = !R.show ? '' : `<div>
       <div class="timeframe-block tf-yesterday"><div class="timeframe-title">${cwEsc(R.title)}</div><div class="timeframe-date" id="yesterday-date-label">—</div>${picker}
         <div id="prod-date-hint" style="margin-top:4px;font-size:10px;opacity:.7;"></div></div>
-      ${(tiles||drivers) ? `<div class="metric-row" style="flex-wrap:wrap;">${tiles}${drivers}</div>` : ''}
-      ${table}${totals}
+      ${cfg.blocks.map(k=>blk[k]||'').join('')}
     </div>`;
-  body.innerHTML = `<div class="prod-split${(L.show&&R.show)?'':' prod-one'}">${left}${right}</div>`;
+  body.innerHTML = `<div class="prod-split${(L.show&&R.show&&cfg.layout!=='stacked')?'':' prod-one'}">${left}${right}</div>`;
   // Tiles can be typed over locally (same as every other tile), so they join the manual-override list.
   cfg.right.tiles.concat(cfg.totals.tiles).forEach(t=>{ if(typeof MANUAL_IDS!=='undefined' && !MANUAL_IDS.includes(t.id)) MANUAL_IDS.push(t.id); });
   if(typeof applyHidden==='function') applyHidden();
 }
+// ── goal colours ──
+function prodNorm(v, format){ if(v==null||v==='') return null; const n=Number(v); if(isNaN(n)) return null; return (String(format).startsWith('percent') && n>2) ? n/100 : n; }
+function prodTone(v, format, t){
+  if(!t) return ''; const n = prodNorm(v, format); if(n==null) return '';
+  if(t.better==='down') return n>=t.red ? 'red' : n>t.amber ? 'amber' : 'green';
+  return n<=t.red ? 'red' : n<t.amber ? 'amber' : 'green';
+}
+// ── day-by-day numbers for charts and the line pop-up ──
+const PROD_COLORS = ['#059669','#3b82f6','#ef4444','#b45309','#8b5cf6','#0ea5e9','#db2777','#64748b'];
+function prodIsLine(r, line){ return String(valByKey(r,'Line')||'').trim().toUpperCase() === String(line).toUpperCase(); }
+function prodSeries(sheetName, field, agg, days, line){
+  const m = new Map();
+  (sheet(sheetName)||[]).forEach(r=>{
+    if(line && !prodIsLine(r,line)) return;
+    const d = parseDate(r.Date); if(!d) return; const ds = toDS(d);
+    if(!m.has(ds)) m.set(ds, []); m.get(ds).push(r);
+  });
+  return [...m.keys()].sort().slice(-days).map(ds=>({ ds, v:prodAggregate(m.get(ds), field, agg) }));
+}
+function prodDayLabel(ds){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(ds||''); return m ? new Date(+m[1],+m[2]-1,+m[3]).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : String(ds); }
+function prodPlotNum(v, pctLike){ if(v==null||v==='') return null; const n=Number(v); if(isNaN(n)) return null; return (pctLike && n<=2) ? n*100 : n; }
+const prodLooksPct = f=> /oee|attain|%|percent|rate/i.test(f||'');
+function prodChartData(c, lines){
+  if(c.scope==='split'){
+    const s0 = c.series[0];
+    const per = lines.map(l=>({ l, pts:prodSeries(c.sheet, s0.field, s0.agg, c.days, l) }));
+    const keys = [...new Set(per.flatMap(p=>p.pts.map(x=>x.ds)))].sort().slice(-c.days);
+    return { labels:keys.map(prodDayLabel), datasets:per.map((p,i)=>{ const mm=new Map(p.pts.map(x=>[x.ds,x.v])); const col=PROD_COLORS[i%PROD_COLORS.length];
+      return { label:prodLineLabel(p.l), data:keys.map(k=>prodPlotNum(mm.get(k), prodLooksPct(s0.field))), borderColor:col, backgroundColor:c.type==='bar'?col+'cc':col, spanGaps:true, fill:false }; }) };
+  }
+  const line = c.scope==='all' ? null : c.scope;
+  const per = c.series.map(s=>prodSeries(c.sheet, s.field, s.agg, c.days, line));
+  const keys = [...new Set(per.flatMap(p=>p.map(x=>x.ds)))].sort().slice(-c.days);
+  return { labels:keys.map(prodDayLabel), datasets:c.series.map((s,i)=>{ const mm=new Map(per[i].map(x=>[x.ds,x.v])); const col=PROD_COLORS[i%PROD_COLORS.length];
+    return { label:s.label, data:keys.map(k=>prodPlotNum(mm.get(k), prodLooksPct(s.field))), borderColor:col, backgroundColor:c.type==='bar'?col+'cc':col, spanGaps:true, fill:false }; }) };
+}
+function prodDrawCharts(cfg){
+  if(!window.Chart) return;
+  const lines = prodLineList(cfg);
+  cfg.right.charts.forEach(c=>{
+    const el = document.getElementById('pc-'+c.id); if(!el) return;
+    const d = prodChartData(c, lines), w = el.closest('.chart-wrap');
+    if(w) w.dataset.empty = d.labels.length ? '' : '1';
+    mkChart(el.id, c.type, d.labels, d.datasets, { title:c.title });
+  });
+}
+// ── one line's detail pop-up ──
+let PROD_LINE_FOCUS = null;
+function prodCloseLine(){ const m=document.getElementById('prod-line-modal'); if(m){ m.remove(); if(PROD_LINE_FOCUS&&PROD_LINE_FOCUS.focus) try{ PROD_LINE_FOCUS.focus(); }catch(e){} } }
+function prodOpenLine(line, from){
+  const cfg = PROD_CFG || prodResolve(); if(!cfg.lineDetail.show) return;
+  prodCloseLine(); PROD_LINE_FOCUS = from || null;
+  const prod = sheet('Production'), selDs = prodSelectedDs(cfg), cols = cfg.right.table.columns;
+  const gt = (t,f)=> t.better==='down' ? '≤ '+prodFmt(t.amber, String(f).startsWith('percent')?f:'number') : '≥ '+prodFmt(t.amber, String(f).startsWith('percent')?f:'number');
+  const cards = cols.map(c=>{
+    const v = prodAggregate(prodRowsOn(prod, prodDsFor(c,prod,selDs)).filter(r=>prodIsLine(r,line)), c.field, c.agg);
+    const tg = (c.perLine && c.perLine[line]) || c.target, tn = prodTone(v, c.format, tg);
+    return `<div class="metric-box"><div class="metric-label">${cwEsc(c.label)}</div><div class="metric-value${tn?' ptone-'+tn:''}">${cwEsc(prodFmt(v, c.format))}</div>${tg?`<div class="prod-goal">Goal ${cwEsc(gt(tg,c.format))}</div>`:''}</div>`;
+  }).join('');
+  const latestDs = (getLatestDate(prod)||{}).str;
+  const pills = cfg.left.pills.map(p=>{
+    const vals = prodRowsOn(prod, latestDs).filter(r=>prodIsLine(r,line)).map(r=>valByKey(r,p.field)).filter(v=>v!=null);
+    const ok = vals.length>0 && !vals.some(v=>yn(v)==='No') && vals.some(v=>yn(v)==='Yes');
+    return `<span class="status-pill ${ok?'pill-yes':'pill-no'}"><span class="pill-label">${cwEsc(p.label)}</span><span>${ok?'✓':'✗'}</span></span>`;
+  }).join(' ');
+  const m = document.createElement('div'); m.id = 'prod-line-modal';
+  m.innerHTML = `<div class="plm-card" role="dialog" aria-modal="true" aria-label="${cwEsc(prodLineLabel(line))} detail">
+    <div class="plm-head"><strong>${cwEsc(prodLineLabel(line))}</strong><span class="plm-sub">${cwEsc(prodDayLabel(selDs))} · last ${cfg.lineDetail.days} days below</span><button type="button" class="plm-x" aria-label="Close">✕</button></div>
+    <div class="plm-body"><div class="metric-row" style="flex-wrap:wrap;">${cards}</div>${pills?`<div class="plm-pills">${pills}</div>`:''}
+    <div class="plm-charts">${cols.slice(0,6).map((c,i)=>`<div class="chart-wrap" style="height:150px;"><canvas id="plm-${i}"></canvas></div>`).join('')}</div></div></div>`;
+  m.addEventListener('click', e=>{ if(e.target===m || e.target.closest('.plm-x')) prodCloseLine(); });
+  document.body.appendChild(m);
+  const x = m.querySelector('.plm-x'); if(x) x.focus();
+  if(window.Chart) cols.slice(0,6).forEach((c,i)=>{
+    const pts = prodSeries('Production', c.field, c.agg, cfg.lineDetail.days, line), col = PROD_COLORS[i%PROD_COLORS.length];
+    mkChart('plm-'+i, 'line', pts.map(p=>prodDayLabel(p.ds)), [{ label:c.label, data:pts.map(p=>prodPlotNum(p.v, prodLooksPct(c.field))), borderColor:col, backgroundColor:col, spanGaps:true, fill:false }], { title:c.label });
+  });
+}
+document.addEventListener('click', e=>{
+  if(window.EDIT && EDIT.on) return;
+  const el = e.target.closest && e.target.closest('[data-pline]'); if(el) prodOpenLine(el.dataset.pline, el);
+});
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape') prodCloseLine();
+  else if(e.key==='Enter' && !(window.EDIT && EDIT.on) && e.target.matches && e.target.matches('[data-pline]')) prodOpenLine(e.target.dataset.pline, e.target);
+});
 function prodRender(){
   const cfg = PROD_CFG = prodResolve();
   prodBuild(cfg);
@@ -844,7 +972,8 @@ function prodRender(){
     const ds = prodDsFor(t, rows, selDs);
     let v = prodAggregate(prodRowsOn(rows, ds), t.field, t.agg);
     if(t.agg==='sum' && v===0) v = null;     // a total of zero means "nothing reported yet"
-    const el = document.getElementById(t.id); if(el) el.textContent = prodFmt(v, t.format);
+    const el = document.getElementById(t.id);
+    if(el){ el.textContent = prodFmt(v, t.format); el.classList.remove('ptone-red','ptone-amber','ptone-green'); const tn = prodTone(v, t.format, t.target); if(tn) el.classList.add('ptone-'+tn); }
   });
   // Drivers (text field written by Power Automate; counted across the latest day)
   const tdEl = document.getElementById('top-drivers');
@@ -864,7 +993,7 @@ function prodRender(){
     lines.forEach(line=>{
       const rows = prodRowsOn(prod, latestDs).filter(r=>isLine(r,line));
       const card = document.createElement('div'); card.className = 'readiness-card';
-      card.innerHTML = `<div class="readiness-line">${cwEsc(prodLineLabel(line))}</div>` + cfg.left.pills.map(p=>{
+      card.innerHTML = `<div class="readiness-line"${cfg.lineDetail.show?` data-pline="${cwEsc(line)}" tabindex="0" role="button" title="See this line's detail" style="cursor:pointer"`:''}>${cwEsc(prodLineLabel(line))}</div>` + cfg.left.pills.map(p=>{
         const vals = rows.map(r=>valByKey(r,p.field)).filter(v=>v!=null);
         const ok = vals.length>0 && !vals.some(v=>yn(v)==='No') && vals.some(v=>yn(v)==='Yes');
         return `<div class="status-pill ${ok?'pill-yes':'pill-no'}"><span class="pill-label">${cwEsc(p.label)}</span><span>${ok?'✓':'✗'}</span></div>`;
@@ -877,21 +1006,19 @@ function prodRender(){
     tbody.innerHTML = '';
     lines.forEach(line=>{
       const tr = document.createElement('tr');
-      let h = `<td style="font-weight:700">${cwEsc(prodLineLabel(line))}</td>`;
+      let h = `<td style="font-weight:700"${cfg.lineDetail.show?` class="prod-linelink" data-pline="${cwEsc(line)}" tabindex="0" role="button" title="See this line's detail"`:''}>${cwEsc(prodLineLabel(line))}</td>`;
       cfg.right.table.columns.forEach(c=>{
         const rows = sheet('Production');
         const ds = prodDsFor(c, rows, selDs);
         const v = prodAggregate(prodRowsOn(rows, ds).filter(r=>isLine(r,line)), c.field, c.agg);
-        let cls = '';
-        if(c.thresholds && v!=null && !isNaN(Number(v))){
-          const n = Number(v)<=2 ? Number(v) : Number(v)/100;
-          cls = n<=c.thresholds.redMax ? 'td-red' : n<c.thresholds.amberMax ? 'td-amber' : 'td-green';
-        }
+        const tn = prodTone(v, c.format, (c.perLine && c.perLine[line]) || c.target);
+        const cls = tn ? 'td-'+tn : '';
         h += `<td class="${cls}">${cwEsc(prodFmt(v, c.format))}</td>`;
       });
       tr.innerHTML = h; tbody.appendChild(tr);
     });
   }
+  prodDrawCharts(cfg);
 }
 async function loadProdConfig(){
   PROD_DB = null;

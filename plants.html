@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script src="plant-config.js"></script>
+  <script src="plant-context.js"></script>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Plants</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="novus-styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script src="novus-core.js"></script>
+  <style>
+    .page { padding-top:24px; padding-bottom:60px; max-width:860px; }
+    .page-title { font-size:1.75rem; font-weight:800; color:var(--ink); letter-spacing:-.03em; }
+    .plant-tag { font-size:.72rem; font-weight:700; color:var(--green-d); background:var(--green-xll); border:1px solid var(--green-ll); padding:3px 10px; border-radius:20px; margin-left:12px; vertical-align:middle; }
+    .lead { color:var(--ink3); font-size:.88rem; margin:6px 0 20px; max-width:62ch; }
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:18px; overflow:hidden; box-shadow:var(--shadow-sm); }
+    .panel-header { background:linear-gradient(135deg,var(--green-xll),var(--green-ll)); border-bottom:1.5px solid #a7f3d0; padding:11px 18px; font-weight:800; font-size:.88rem; color:var(--green-d); display:flex; justify-content:space-between; gap:12px; }
+    .panel-body { padding:6px 18px 14px; }
+    .row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .row:last-child { border-bottom:none; }
+    .who { flex:1 1 220px; min-width:0; }
+    .who b { display:block; color:var(--ink); overflow-wrap:anywhere; } .who span { font-size:.74rem; color:var(--ink3); overflow-wrap:anywhere; }
+    select, input[type=text], input[type=email] { font:inherit; padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+    .btn-remove { background:rgba(220,38,38,.08); color:var(--red-l); border:1px solid rgba(220,38,38,.25); border-radius:6px; padding:5px 12px; font-size:.74rem; font-weight:700; cursor:pointer; }
+    .msg { font-size:.8rem; font-weight:700; padding:10px 18px 0; min-height:1.2em; } .msg.ok { color:var(--green); } .msg.err { color:var(--red-l); }
+    .empty { color:var(--ink4); padding:16px 0; }
+    .roles { font-size:.78rem; color:var(--ink3); padding:12px 18px; line-height:1.6; }
+    .btn-sm { font:inherit; font-size:.74rem; font-weight:700; padding:5px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--ink); cursor:pointer; }
+    .btn-sm:hover { border-color:var(--green); }
+    .pname { font-weight:800; color:var(--ink); } .pmeta { font-size:.74rem; color:var(--ink3); overflow-wrap:anywhere; }
+    .cur { font-size:.66rem; font-weight:800; color:var(--green-d); background:var(--green-xll); border:1px solid var(--green-ll); padding:1px 8px; border-radius:20px; margin-left:8px; vertical-align:middle; }
+    .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px 14px; padding:14px 18px 6px; }
+    .form-grid label { display:flex; flex-direction:column; gap:4px; font-size:.72rem; font-weight:700; color:var(--ink3); }
+    .form-grid input, .form-grid select { width:100%; box-sizing:border-box; }
+    .hint { font-size:.7rem; font-weight:400; color:var(--ink4); }
+    .edit-box, .del-box { flex-basis:100%; border-top:1px dashed var(--border); margin-top:6px; padding:10px 0 4px; }
+    .del-box { background:rgba(220,38,38,.05); border:1px solid rgba(220,38,38,.25); border-radius:8px; padding:12px 14px; margin-top:10px; }
+    .del-box p { margin:0 0 8px; font-size:.8rem; color:var(--ink2,#334); line-height:1.5; }
+    .btn-danger { background:var(--red-l,#dc2626); color:#fff; border:none; border-radius:6px; padding:7px 14px; font-weight:700; font-size:.78rem; cursor:pointer; }
+    .btn-danger:disabled { opacity:.45; cursor:not-allowed; }
+    .add select, .add input { width:auto; flex:0 1 260px; }
+    .add { display:flex; gap:8px; flex-wrap:wrap; padding:14px 18px 6px; align-items:center; }
+  </style>
+</head>
+<body id="main-body">
+<header class="cmd-header">
+  <div class="cmd-left">
+    <a href="hub.html"><img data-brand-logo alt="" class="cmd-logo"></a>
+    <div class="cmd-divider"></div>
+    <nav class="cmd-nav">
+      <a class="cmd-tab" href="hub.html">Home</a>
+      <a class="cmd-tab" href="dds-dashboard.html">Dashboard</a>
+      <a class="cmd-tab" href="data-entry.html">Data Entry</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page" id="page">
+  <h1 class="page-title">Plants</h1>
+  <p class="lead">Every plant has its own data, dashboard layout and people. A person can belong to several plants with a different role in each. Only super-admins see this page.</p>
+
+  <div class="panel">
+    <div class="panel-header"><span>Your plants</span></div>
+    <div class="panel-body" id="plant-list"></div>
+    <div class="msg" id="l-msg" role="status"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>Add a plant</span></div>
+    <div class="form-grid">
+      <label>Plant name<input type="text" id="c-name" placeholder="Novus Foods Plant 2000"></label>
+      <label>Plant ID <span class="hint">letters, numbers, - and _ · cannot change later</span><input type="text" id="c-id" placeholder="2000" maxlength="32"></label>
+      <label>Short label<input type="text" id="c-short" placeholder="Plant 2000"></label>
+      <label>Location<input type="text" id="c-loc" placeholder="City, State"></label>
+      <label>Production lines <span class="hint">separated by commas</span><input type="text" id="c-lines" placeholder="Line 1, Line 2, Line 3"></label>
+      <label>Start from<select id="c-copy"><option value="">A blank plant</option></select></label>
+    </div>
+    <div class="add"><button type="button" class="btn btn-primary" id="c-btn">Create plant</button></div>
+    <div class="msg" id="c-msg" role="status"></div>
+    <div class="roles">“Start from” copies another plant’s setup (Data Entry columns and departments, dashboard layout and panel settings). It never copies entered numbers, announcements or people. You are an admin of every plant automatically.</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>Assign a person to a plant</span></div>
+    <div class="add">
+      <input type="email" id="s-email" placeholder="their email" size="28">
+      <select id="s-plant"></select>
+      <select id="s-role"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="admin">Admin</option></select>
+      <button type="button" class="btn btn-primary" id="s-btn">Assign</button>
+    </div>
+    <div class="msg" id="s-msg" role="status"></div>
+    <div class="roles">They must already have clicked “Request an account” on the login page. Assigning someone who already has a role in that plant changes their role. To see or remove a plant’s people, use “People” on the plant above.</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>Super-admins</span></div>
+    <div class="panel-body" id="supers"></div>
+    <div class="add">
+      <input type="email" id="u-email" placeholder="email of an existing account" size="28">
+      <button type="button" class="btn btn-primary" id="u-btn">Make super-admin</button>
+    </div>
+    <div class="msg" id="u-msg" role="status"></div>
+    <div class="roles">A super-admin can create and delete plants and is an admin of every plant. Keep this list short.</div>
+  </div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const say = (id, t, cls) => { const e = $(id); e.textContent = t || ''; e.className = 'msg' + (cls ? ' ' + cls : ''); };
+  const ME = () => (NovusCore.getUser() || {});
+  let PLANTS = [], MEMBERS = [], idTouched = false;
+
+  const linesOf = p => ((p.config && p.config.lines) || []).map(l => typeof l === 'string' ? l : l.code);
+  const parseLines = (txt, old) => {
+    const prev = {}; (old || []).forEach(l => { if (l && l.code) prev[l.code] = l; });
+    return String(txt || '').split(',').map(x => x.trim()).filter(Boolean).filter((x, i, a) => a.indexOf(x) === i)
+      .map(code => prev[code] || { code, label: code });
+  };
+  const slug = n => String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+
+  async function load() {
+    const [pl, pm, su] = await Promise.all([
+      _sb.from('plants').select('*').order('name'),
+      _sb.from('plant_members').select('user_id, plant_id'),
+      _sb.from('super_admins').select('*').order('created_at')
+    ]);
+    if (pl.error) { $('plant-list').innerHTML = '<div class="empty">Could not load plants: ' + esc(pl.error.message) + '</div>'; return; }
+    PLANTS = pl.data || []; MEMBERS = pm.data || [];
+    const cur = ME().plant;
+    $('plant-list').innerHTML = PLANTS.map(p => {
+      const n = MEMBERS.filter(m => m.plant_id === p.id).length;
+      const lines = linesOf(p);
+      return `<div class="row" data-plant="${esc(p.id)}">
+        <div class="who"><span class="pname">${esc(p.name || p.id)}</span>${p.id === cur ? '<span class="cur">showing now</span>' : ''}
+          <span class="pmeta">ID ${esc(p.id)}${p.location ? ' · ' + esc(p.location) : ''} · ${n} ${n === 1 ? 'person' : 'people'}${lines.length ? ' · ' + esc(lines.join(', ')) : ''}</span></div>
+        ${p.id === cur ? '' : `<button type="button" class="btn-sm" data-show="${esc(p.id)}">Show this plant</button>`}
+        <button type="button" class="btn-sm" data-people="${esc(p.id)}">People</button>
+        <button type="button" class="btn-sm" data-edit="${esc(p.id)}">Edit</button>
+        <button type="button" class="btn-remove" data-del="${esc(p.id)}">Delete…</button>
+        <div class="edit-box" id="edit-${esc(p.id)}" hidden></div>
+        <div class="del-box" id="del-${esc(p.id)}" hidden></div>
+      </div>`;
+    }).join('') || '<div class="empty">No plants yet. Add the first one below.</div>';
+    const opts = PLANTS.map(p => `<option value="${esc(p.id)}">${esc(p.name || p.id)} (${esc(p.id)})</option>`).join('');
+    $('s-plant').innerHTML = opts;
+    $('c-copy').innerHTML = '<option value="">A blank plant</option>' + PLANTS.map(p => `<option value="${esc(p.id)}">Copy the setup of ${esc(p.name || p.id)}</option>`).join('');
+    $('supers').innerHTML = (su.data || []).map(r => {
+      const self = r.user_id === ME().id;
+      return `<div class="row"><div class="who"><b>${esc(r.email)}</b><span>${self ? 'you' : ''}</span></div>
+        ${self ? '' : `<button type="button" class="btn-remove" data-unsuper="${esc(r.email)}">Remove super-admin</button>`}</div>`;
+    }).join('') || '<div class="empty">None.</div>';
+  }
+
+  async function afterChange(goHome) {
+    const u = await NovusAccess.refresh();
+    if (goHome) { location.href = (u && u.plant) ? 'hub.html' : 'plants.html'; return; }
+    await load();
+  }
+
+  document.addEventListener('click', async e => {
+    const show = e.target.closest('[data-show]');
+    if (show) { NovusCore.switchPlant(show.dataset.show); return; }
+    const ppl = e.target.closest('[data-people]');
+    if (ppl) { NovusAccess.setActive(ppl.dataset.people); location.href = 'team.html'; return; }
+
+    const ed = e.target.closest('[data-edit]');
+    if (ed) {
+      const p = PLANTS.find(x => x.id === ed.dataset.edit), box = $('edit-' + p.id);
+      if (!box.hidden) { box.hidden = true; return; }
+      box.innerHTML = `<div class="form-grid" style="padding:0 0 8px">
+        <label>Plant name<input type="text" data-f="name" value="${esc(p.name)}"></label>
+        <label>Short label<input type="text" data-f="short_label" value="${esc(p.short_label)}"></label>
+        <label>Location<input type="text" data-f="location" value="${esc(p.location)}"></label>
+        <label>Production lines <span class="hint">separated by commas</span><input type="text" data-f="lines" value="${esc(linesOf(p).join(', '))}"></label></div>
+        <button type="button" class="btn btn-primary" data-save="${esc(p.id)}">Save</button>`;
+      box.hidden = false; return;
+    }
+    const sv = e.target.closest('[data-save]');
+    if (sv) {
+      const p = PLANTS.find(x => x.id === sv.dataset.save), box = $('edit-' + p.id);
+      const f = k => box.querySelector('[data-f="' + k + '"]').value.trim();
+      if (!f('name')) { say('l-msg', 'A plant needs a name.', 'err'); return; }
+      const config = Object.assign({}, p.config || {}, { lines: parseLines(f('lines'), (p.config && p.config.lines) || []) });
+      const { error } = await _sb.from('plants').update({ name: f('name'), short_label: f('short_label') || f('name'), location: f('location'), config }).eq('id', p.id);
+      if (error) { say('l-msg', error.message, 'err'); return; }
+      say('l-msg', 'Saved ✓', 'ok');
+      const u = await NovusAccess.refresh(); if (u && u.plant === p.id) { location.reload(); return; } await load(); return;
+    }
+
+    const dl = e.target.closest('[data-del]');
+    if (dl) {
+      const p = PLANTS.find(x => x.id === dl.dataset.del), box = $('del-' + p.id);
+      if (!box.hidden) { box.hidden = true; return; }
+      box.innerHTML = `<p><b>Permanently delete ${esc(p.name || p.id)}?</b> This erases everything that belongs to it: entered data, Data Entry columns, dashboard layout, announcements, rules, Needs Action items and everyone’s access to it. People’s accounts are kept. This cannot be undone.</p>
+        <p>Type <b>${esc(p.id)}</b> to confirm:</p>
+        <input type="text" data-conf="${esc(p.id)}" autocomplete="off" size="16"> <button type="button" class="btn-danger" data-confirm="${esc(p.id)}" disabled>Delete forever</button>`;
+      box.hidden = false; return;
+    }
+    const cf = e.target.closest('[data-confirm]');
+    if (cf) {
+      const id = cf.dataset.confirm, wasCurrent = ME().plant === id;
+      cf.disabled = true;
+      const { error } = await _sb.rpc('delete_plant', { p_id: id, p_confirm: id });
+      if (error) { say('l-msg', error.message, 'err'); cf.disabled = false; return; }
+      say('l-msg', id + ' deleted ✓', 'ok');
+      await afterChange(wasCurrent); return;
+    }
+    const us = e.target.closest('[data-unsuper]');
+    if (us) {
+      const { error } = await _sb.rpc('set_super_admin', { p_email: us.dataset.unsuper, p_on: false });
+      error ? say('u-msg', error.message, 'err') : say('u-msg', 'Removed ✓', 'ok'); load();
+    }
+  });
+  document.addEventListener('input', e => {
+    const c = e.target.closest('[data-conf]');
+    if (c) { const b = document.querySelector('[data-confirm="' + c.dataset.conf + '"]'); if (b) b.disabled = c.value.trim() !== c.dataset.conf; }
+  });
+
+  $('c-name').addEventListener('input', () => { if (!idTouched) $('c-id').value = slug($('c-name').value); });
+  $('c-id').addEventListener('input', () => { idTouched = true; });
+  $('c-btn').addEventListener('click', async () => {
+    const name = $('c-name').value.trim(), id = $('c-id').value.trim();
+    if (!name || !id) { say('c-msg', 'Give the plant a name and an ID.', 'err'); return; }
+    $('c-btn').disabled = true;
+    const { error } = await _sb.rpc('create_plant', {
+      p_id: id, p_name: name, p_short: $('c-short').value.trim(), p_location: $('c-loc').value.trim(),
+      p_lines: parseLines($('c-lines').value), p_copy_from: $('c-copy').value || null
+    });
+    $('c-btn').disabled = false;
+    if (error) { say('c-msg', error.message, 'err'); return; }
+    say('c-msg', name + ' created ✓ Use “Show this plant” above to open it.', 'ok');
+    ['c-name', 'c-id', 'c-short', 'c-loc', 'c-lines'].forEach(k => $(k).value = ''); idTouched = false;
+    const u = await NovusAccess.refresh();
+    if (u && !ME().plant) { location.href = 'hub.html'; return; }
+    await load();
+  });
+  $('s-btn').addEventListener('click', async () => {
+    const email = $('s-email').value.trim();
+    if (!email) { say('s-msg', 'Type their email first.', 'err'); return; }
+    const { error } = await _sb.rpc('add_plant_member', { p_plant: $('s-plant').value, p_email: email, p_role: $('s-role').value, p_name: '' });
+    if (error) { say('s-msg', error.message, 'err'); return; }
+    say('s-msg', email + ' assigned ✓', 'ok'); $('s-email').value = ''; load();
+  });
+  $('u-btn').addEventListener('click', async () => {
+    const email = $('u-email').value.trim();
+    if (!email) { say('u-msg', 'Type their email first.', 'err'); return; }
+    const { error } = await _sb.rpc('set_super_admin', { p_email: email, p_on: true });
+    if (error) { say('u-msg', error.message, 'err'); return; }
+    say('u-msg', email + ' is now a super-admin ✓', 'ok'); $('u-email').value = ''; load();
+  });
+
+  window.onload = () => {
+    NovusCore.requireAuth();
+    if (!NovusCore.isSuper()) { $('page').innerHTML = '<h1 class="page-title">Plants</h1><p class="lead">Only super-admins can add and delete plants.</p>'; return; }
+    load();
+  };
+</script>
+</body>
+</html>

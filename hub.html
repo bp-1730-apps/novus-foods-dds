@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <script src="plant-config.js"></script>
+  <script src="plant-context.js"></script>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Ops Hub</title>
@@ -363,7 +364,9 @@ body {
   <div class="hub-user">
     <div class="hub-avatar" id="hub-avatar">—</div>
     <span id="hub-username">—</span>
+    <select id="plant-switch" class="plant-switch" aria-label="Switch plant" style="display:none;font:inherit;font-size:.78rem;font-weight:700;padding:5px 8px;border-radius:8px;max-width:210px;cursor:pointer"></select>
     <a class="hub-logout" id="hub-team" href="team.html" style="display:none;text-decoration:none;" title="Approve people and set roles">👥 Team</a>
+    <a class="hub-logout" id="hub-plants" href="plants.html" style="display:none;text-decoration:none;" title="Add or delete plants and assign people">🏭 Plants</a>
     <button class="hub-logout" onclick="NovusCore.showMaintenance()" style="border-color:rgba(217,119,6,.3);color:var(--amber);" title="Maintenance Center">🔧 Maintenance</button>
     <button class="hub-logout" onclick="NovusCore.logout()">Logout</button>
   </div>
@@ -462,6 +465,12 @@ NovusCore.requireAuth();
   if (b.showProductStrip) { document.getElementById('hub-product-strip').style.display = ''; document.getElementById('hub-product-tag').textContent = b.heroTag || ''; }
   if (b.showBrandsBar) document.getElementById('hub-brands-bar').style.display = '';
   if (NovusCore.isAdmin()) document.getElementById('hub-team').style.display = '';
+  if (NovusCore.isSuper()) document.getElementById('hub-plants').style.display = '';
+  const mine = (NovusCore.getUser() || {}).plants || [], sw = document.getElementById('plant-switch');
+  if (mine.length > 1) {
+    mine.forEach(p => { const o = document.createElement('option'); o.value = p.id; o.textContent = p.short_label || p.name || p.id; if (p.id === PLANT_CONFIG.plant.id) o.selected = true; sw.appendChild(o); });
+    sw.style.display = ''; sw.onchange = () => NovusCore.switchPlant(sw.value);
+  }
 })();
 
 // Personalise greeting
@@ -520,10 +529,12 @@ function applyPlantBranding(plant){
   }
 
   const sel = document.getElementById('plant-selector');
-  if (sel && window.PLANTS_CONFIG) {
-    sel.innerHTML = window.PLANTS_CONFIG.plants.map(p =>
-      `<option value="${p.id}"${p.id===plant.id?' selected':''}>${p.shortLabel||p.name}</option>`
-    ).join('');
+  if (sel) {
+    // Every plant this person belongs to (the session list); a single-plant person just sees their plant.
+    const mine = (NovusCore.getUser() || {}).plants || [];
+    const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    sel.innerHTML = (mine.length ? mine.map(p => ({ id: p.id, label: p.short_label || p.name || p.id })) : [{ id: plant.id, label: plant.shortLabel || plant.name }])
+      .map(p => `<option value="${esc(p.id)}"${p.id===plant.id?' selected':''}>${esc(p.label)}</option>`).join('');
   }
 
   // Carry the choice into the DDS Meeting flow explicitly (on top of the
@@ -537,6 +548,7 @@ function applyPlantBranding(plant){
 // Updates in place (no reload) -- title/eyebrow/footer/Open-DDS-link all
 // re-derive immediately from the newly picked plant.
 function onPlantChange(id){
+  if (window.NovusCore && NovusCore.switchPlant) { NovusCore.switchPlant(id); return; }
   const plants = (window.PLANTS_CONFIG && window.PLANTS_CONFIG.plants) || [];
   const plant = plants.find(p => p.id === id);
   if (!plant) return;

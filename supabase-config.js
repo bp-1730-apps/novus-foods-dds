@@ -81,11 +81,11 @@ window.NovusDB = {
 
   // ── Rules of Engagement ─────────────────────────────────────────────────
   rules: {
-    getAll: () =>
-      _sb.from('rules').select('*').order('created_at', { ascending: true }),
+    getAll: (plantId) =>
+      _sb.from('rules').select('*').eq('plant_id', plantId || window.PLANT_CONFIG.plant.id).order('created_at', { ascending: true }),
 
     add: (item) =>
-      _sb.from('rules').insert({ id: item.id, text: item.text, date: item.date }),
+      _sb.from('rules').insert({ id: item.id, plant_id: item.plant_id || window.PLANT_CONFIG.plant.id, text: item.text, date: item.date }),
 
     update: (id, text) =>
       _sb.from('rules').update({ text }).eq('id', id),
@@ -102,12 +102,13 @@ window.NovusDB = {
 
   // ── Needs Action ────────────────────────────────────────────────────────
   needsAction: {
-    getAll: () =>
-      _sb.from('needs_action').select('*').order('created_at', { ascending: false }),
+    getAll: (plantId) =>
+      _sb.from('needs_action').select('*').eq('plant_id', plantId || window.PLANT_CONFIG.plant.id).order('created_at', { ascending: false }),
 
     add: (item) =>
       _sb.from('needs_action').insert({
         id:             item.id,
+        plant_id:       item.plant_id || window.PLANT_CONFIG.plant.id,
         date:           item.date,
         description:    item.description,
         owner:          item.owner,
@@ -648,4 +649,69 @@ window.NovusDB.layoutHistory = {
       .order('saved_at', { ascending: false }).limit(limit || 20),
   get: (id) =>
     _sb.from('dashboard_layout_history').select('*').eq('id', id).single(),
+};
+
+
+// ── NovusAccess: who is signed in, which plants they belong to, which one is showing ──
+// The result lives in sessionStorage 'dds_user' (the page reads it to decide what to
+// SHOW; the database decides what is actually allowed). plant-context.js reads the
+// same record to point every page at the active plant.
+window.NovusAccess = {
+  USER_KEY: 'dds_user',
+
+  /** Ask the database for this person's plants. Resolves { isSuper, plants:[{id,name,short_label,location,config,role}], displayName } or { error }. */
+  async load(userId) {
+    const [sa, pm, pl] = await Promise.all([
+      _sb.from('super_admins').select('user_id').eq('user_id', userId),
+      _sb.from('plant_members').select('plant_id, role, display_name').eq('user_id', userId),
+      _sb.from('plants').select('*').order('name'),
+    ]);
+    const err = sa.error || pm.error || pl.error;
+    if (err) return { error: err.message };
+    const isSuper = (sa.data || []).length > 0;
+    const roleBy = {}; let displayName = '';
+    (pm.data || []).forEach(m => { roleBy[m.plant_id] = m.role; if (m.display_name) displayName = m.display_name; });
+    const plants = (pl.data || [])
+      .map(p => Object.assign({}, p, { role: isSuper ? 'admin' : roleBy[p.id] }))
+      .filter(p => p.role)
+      .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id), undefined, { numeric: true }));
+    return { isSuper, plants, displayName };
+  },
+
+  /** Build the session record. wantId = the plant to show (falls back to the last one used, then the first). */
+  build(user, access, wantId) {
+    let last = ''; try { last = localStorage.getItem('dds_last_plant') || ''; } catch (_) {}
+    const pick = access.plants.find(p => p.id === wantId) || access.plants.find(p => p.id === last) || access.plants[0] || null;
+    return {
+      id: user.id, email: user.email,
+      username: access.displayName || String(user.email || '').split('@')[0],
+      super: !!access.isSuper,
+      plants: access.plants,
+      plant: pick ? pick.id : '', role: pick ? pick.role : (access.isSuper ? 'admin' : ''),
+      loginTime: new Date().toISOString(),
+    };
+  },
+
+  save(u) {
+    try { sessionStorage.setItem('dds_user', JSON.stringify(u)); } catch (_) {}
+    try { if (u.plant) { localStorage.setItem('dds_last_plant', u.plant); localStorage.setItem('novus_active_plant', u.plant); } } catch (_) {}
+  },
+
+  /** Show another plant. Returns false when this person has no access to it. */
+  setActive(plantId) {
+    let u = null; try { u = JSON.parse(sessionStorage.getItem('dds_user')); } catch (_) {}
+    if (!u) return false;
+    const p = (u.plants || []).find(x => x.id === plantId); if (!p) return false;
+    u.plant = p.id; u.role = p.role; this.save(u); return true;
+  },
+
+  /** Re-read the plant list (after creating or deleting a plant), keeping the active plant when it still exists. */
+  async refresh() {
+    let u = null; try { u = JSON.parse(sessionStorage.getItem('dds_user')); } catch (_) {}
+    if (!u) return null;
+    const access = await this.load(u.id);
+    if (access.error) return null;
+    const nu = this.build(u, access, u.plant);
+    nu.loginTime = u.loginTime; this.save(nu); return nu;
+  },
 };

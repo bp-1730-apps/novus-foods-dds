@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <script src="plant-config.js"></script>
+  <script src="plant-context.js"></script>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>Team</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -28,6 +29,7 @@
     .msg { font-size:.8rem; font-weight:700; padding:10px 18px 0; min-height:1.2em; } .msg.ok { color:var(--green); } .msg.err { color:var(--red-l); }
     .empty { color:var(--ink4); padding:16px 0; }
     .roles { font-size:.78rem; color:var(--ink3); padding:12px 18px; line-height:1.6; }
+    .add select, .add input { width:auto; flex:0 1 260px; }
     .add { display:flex; gap:8px; flex-wrap:wrap; padding:14px 18px 6px; align-items:center; }
   </style>
 </head>
@@ -46,7 +48,7 @@
 
 <div class="page">
   <h1 class="page-title">Team<span class="plant-tag" id="plant-tag"></span></h1>
-  <p class="lead">Decide who can use this site. People request an account on the login page; they appear under “Waiting for approval” until you give them a role.</p>
+  <p class="lead">Decide who can use <b id="lead-plant">this plant</b>. People request an account on the login page; they appear under “Waiting for approval” until you give them a role. To give someone access to a second plant, switch to that plant and approve them by email here (they keep their role in this one).</p>
 
   <div class="panel" id="pending-panel">
     <div class="panel-header"><span>Waiting for approval</span></div>
@@ -54,7 +56,7 @@
   </div>
 
   <div class="panel">
-    <div class="panel-header"><span>Approve someone by email</span></div>
+    <div class="panel-header"><span>Add someone by email</span></div>
     <div class="add">
       <input type="email" id="a-email" placeholder="their email" size="28">
       <input type="text" id="a-name" placeholder="name shown (optional)" size="20">
@@ -66,7 +68,7 @@
   </div>
 
   <div class="panel">
-    <div class="panel-header"><span>People with access</span></div>
+    <div class="panel-header"><span>People with access to this plant</span></div>
     <div class="panel-body" id="members"></div>
     <div class="msg" id="m-msg" role="status"></div>
   </div>
@@ -77,10 +79,11 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const say = (id, t, cls) => { const e = $(id); e.textContent = t || ''; e.className = 'msg' + (cls ? ' ' + cls : ''); };
   const ME = () => (NovusCore.getUser() || {});
+  const PID = () => window.PLANT_CONFIG.plant.id;
 
   async function load() {
     const [m, p] = await Promise.all([
-      _sb.from('plant_members').select('*').order('created_at'),
+      _sb.from('plant_members').select('*').eq('plant_id', PID()).order('created_at'),
       _sb.rpc('pending_accounts')
     ]);
     if (m.error) { $('members').innerHTML = '<div class="empty">Could not load people: ' + esc(m.error.message) + '</div>'; return; }
@@ -99,7 +102,7 @@
   }
 
   async function approve(email, role, name) {
-    const { error } = await _sb.rpc('add_plant_member', { p_email: email, p_role: role, p_name: name || '' });
+    const { error } = await _sb.rpc('add_plant_member', { p_plant: PID(), p_email: email, p_role: role, p_name: name || '' });
     return error;
   }
 
@@ -113,13 +116,13 @@
     const rm = e.target.closest('[data-rm]');
     if (rm) {
       if (!confirm('Remove access for ' + rm.dataset.name + '? They can request an account again later.')) return;
-      const { error } = await _sb.from('plant_members').delete().eq('user_id', rm.dataset.rm);
+      const { error } = await _sb.from('plant_members').delete().eq('user_id', rm.dataset.rm).eq('plant_id', PID());
       error ? say('m-msg', error.message, 'err') : say('m-msg', 'Access removed ✓', 'ok'); load();
     }
   });
   document.addEventListener('change', async e => {
     const sel = e.target.closest('select[data-uid]'); if (!sel) return;
-    const { error } = await _sb.from('plant_members').update({ role: sel.value }).eq('user_id', sel.dataset.uid);
+    const { error } = await _sb.from('plant_members').update({ role: sel.value }).eq('user_id', sel.dataset.uid).eq('plant_id', PID());
     error ? say('m-msg', error.message, 'err') : say('m-msg', 'Role updated ✓', 'ok'); load();
   });
   $('a-btn').addEventListener('click', async () => {
@@ -134,6 +137,7 @@
     NovusCore.requireAuth();
     if (!NovusCore.isAdmin()) { document.querySelector('.page').innerHTML = '<h1 class="page-title">Team</h1><p class="lead">Only plant admins can manage the team.</p>'; return; }
     $('plant-tag').textContent = PLANT_CONFIG.plant.shortLabel;
+    $('lead-plant').textContent = PLANT_CONFIG.plant.name || PLANT_CONFIG.plant.shortLabel;
     document.title = 'Team – ' + PLANT_CONFIG.plant.name;
     load();
   };

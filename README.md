@@ -3,8 +3,10 @@
 A daily direction-setting dashboard for a manufacturing plant. Plain HTML, CSS and
 JavaScript on GitHub Pages, with Supabase for sign-in and data. No build step.
 
-Each plant owns its own copy: its own GitHub repo, its own Supabase project, its
-own admins and its own layout.
+A site can serve one plant or many. Every plant has its own data, layout and
+people; one Supabase project holds them all, and a super-admin adds and deletes
+plants inside the app (Plants page). Another company or site can also take its
+own copy: its own GitHub repo and Supabase project.
 
 **Setting up a plant? Start with [PLANT_SETUP.md](PLANT_SETUP.md).**
 
@@ -37,13 +39,11 @@ site for another plant.
 
 ## Roles
 
-Admin can change anything and manage people. Editor can enter data and edit the
-dashboard layout. Viewer can look. These are enforced by the database (row-level
-security), not just hidden buttons.
+Roles are per plant. Admin can change the dashboard layout, Data Entry columns and tabs, KPIs and people of that plant. A super-admin is an admin of every plant and can also create and delete plants and assign people to them. Editor can type Data Entry values, fill in the highlight cards, and post announcements and play calls. Viewer can look. These are enforced by the database (row-level security), not just hidden buttons.
 
 ## Files
 
-`index.html` sign-in, `hub.html` home, the pages above, `novus-core.js` /
+`index.html` sign-in, `hub.html` home, `team.html` people of the current plant, `plants.html` add/delete plants (super-admins), `plant-context.js` points every page at the plant being shown, the pages above, `novus-core.js` /
 `novus-interactions.js` / `novus-styles.css` shared code and styling,
 `dds-editor.js/.css` the edit-in-place tools, `kpi-source.js` weekly roll-ups,
 `supabase-config.js` database access, `data_entries.sql` the database setup,

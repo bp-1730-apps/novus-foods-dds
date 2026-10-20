@@ -21,7 +21,7 @@ body.editing #main-sortable > .panel.sortable-ghost { opacity: .35; }
 .ed-pbar button:focus-visible, .ed-grip:focus-visible, .ed-tilectl button:focus-visible, .ed-add:focus-visible { outline: 3px solid #fbbf24; outline-offset: 1px; }
 
 /* ── Small controls on each number / card ── */
-body.editing .chart-wrap, body.editing .metric-box, body.editing .custom-widget, body.editing .hl-card { position: relative; }
+body.editing .chart-wrap, body.editing [data-pblk], body.editing .metric-box, body.editing .custom-widget, body.editing .hl-card { position: relative; }
 .ed-tilectl { position: absolute; top: -9px; right: -6px; z-index: 4; display: inline-flex; gap: 2px; }
 .ed-tilectl button { width: 24px; height: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink2); font-size: .8rem; line-height: 1; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
 .ed-tilectl button:hover { background: var(--green-xll); color: var(--green-d); }
@@ -97,3 +97,22 @@ body.editing .chart-wrap, body.editing .metric-box, body.editing .custom-widget,
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 
 .chart-wrap > .ed-tilectl { top: 4px; right: 4px; }
+
+/* ── Production Summary controls ── */
+.ed-blkctl { top: -12px; left: 0; right: auto; }
+body.editing #prod-body [data-pblk] { outline: 1px dashed rgba(5,150,105,.4); outline-offset: 3px; }
+.ed-thctl { display: inline-flex; gap: 2px; margin-left: 4px; vertical-align: middle; }
+.ed-thctl button { width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--ink2); font-size: .72rem; line-height: 1; cursor: pointer; }
+.ed-thctl button:hover { background: var(--green-xll); color: var(--green-d); }
+.ed-prodadd { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.ed-prodadd button { padding: 8px 12px; min-height: 36px; border: 2px dashed #059669; border-radius: 8px; background: transparent; color: #047857; font: inherit; font-size: .74rem; font-weight: 700; cursor: pointer; }
+.ed-prodadd button:hover { background: rgba(5,150,105,.09); }
+.ed-3 { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 10px; }
+.ed-ser { border-top: 1px solid var(--border); padding-top: 8px; display: grid; gap: 4px; }
+.ed-linerow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: .8rem; }
+.ed-linelist { display: grid; gap: 0; }
+.ed-btn.sm { min-height: 28px; padding: 3px 9px; margin-left: 3px; }
+.ed-det { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--surface); }
+.ed-det summary { cursor: pointer; font-size: .74rem; font-weight: 700; color: var(--green-d); }
+.ed-plrow { align-items: end; margin-top: 6px; } .ed-pllabel { font-size: .8rem; font-weight: 700; padding-bottom: 10px; }
+@media (max-width: 760px) { .ed-3 { grid-template-columns: 1fr; } }

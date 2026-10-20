@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <script src="plant-config.js"></script>
+  <script src="plant-context.js"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KPI Boards</title>
@@ -442,7 +443,7 @@ input[type="color"] { width: 32px; height: 28px; padding: 0; border: 1px solid v
       { name: 'Violet', l: '#6b3fd4', d: '#a98bff' },
       { name: 'Orange', l: '#b4510a', d: '#ff9a52' }
     ],
-    STORAGE_KEY: 'plant-kpi-boards-v3'
+    STORAGE_KEY: 'plant-kpi-boards-v3' + ((window.PLANT_CONFIG.plant.id && window.PLANT_CONFIG.plant.id !== window.PLANT_CONFIG.plant.fileId) ? '-' + window.PLANT_CONFIG.plant.id : '')
   };
   var SIZES = { s: 3, m: 4, l: 6, xl: 8, f: 12 };
   var SIZE_NAMES = { s: 'Small', m: 'Medium', l: 'Large', xl: 'Wide', f: 'Full width' };

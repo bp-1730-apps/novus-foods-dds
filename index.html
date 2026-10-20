@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <script src="plant-config.js"></script>
+  <script src="plant-context.js"></script>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>Operations DDS</title>
@@ -546,23 +547,23 @@
       showError(error && /confirm/i.test(error.message) ? 'Please confirm your email first (check your inbox).' : 'Email or password is not right.');
       return;
     }
-    const { data: member, error: mErr } = await _sb.from('plant_members')
-      .select('role, display_name').eq('user_id', data.user.id).maybeSingle();
-    if (mErr || !member) {
+    const access = await NovusAccess.load(data.user.id);
+    if (access.error) {
       await _sb.auth.signOut();
       busy(false, 'Sign In');
-      showError(mErr ? 'Could not check your access. Is the database set up? (see PLANT_SETUP.md)' : 'Your account is waiting for approval from a plant admin.');
+      showError('Could not check your access. Has the latest data_entries.sql been run? (see PLANT_SETUP.md)');
       return;
     }
-    try {
-      sessionStorage.setItem('dds_user', JSON.stringify({
-        id: data.user.id, email,
-        username: member.display_name || email.split('@')[0],
-        plant: PLANT.id, role: member.role,
-        loginTime: new Date().toISOString()
-      }));
-    } catch (_) {}
-    setTimeout(() => { window.location.href = 'hub.html'; }, 250);
+    if (!access.plants.length && !access.isSuper) {
+      await _sb.auth.signOut();
+      busy(false, 'Sign In');
+      showError('Your account is waiting for approval from a plant admin.');
+      return;
+    }
+    const user = NovusAccess.build({ id: data.user.id, email }, access, new URLSearchParams(location.search).get('plant'));
+    NovusAccess.save(user);
+    // A brand-new project has no plants yet: the first super-admin goes to create one.
+    setTimeout(() => { window.location.href = user.plant ? 'hub.html' : 'plants.html'; }, 250);
   }
 </script>
 

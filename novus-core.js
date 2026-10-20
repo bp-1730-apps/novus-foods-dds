@@ -28,12 +28,43 @@ window.NovusCore = (() => {
       const src = img.getAttribute('data-brand-logo') === 'white' ? b.logoWhite : b.logo;
       if (src) { img.src = src; img.alt = b.org; } else { img.style.display = 'none'; }
     });
-    // Admins get a Team link in the top navigation.
-    if (isAdmin()) {
-      const nav = document.querySelector('.cmd-nav');
-      if (nav && !nav.querySelector('[href="team.html"]')) {
-        const a = document.createElement('a'); a.className = 'cmd-tab'; a.href = 'team.html'; a.textContent = 'Team'; nav.appendChild(a);
-      }
+    // Admins get a Team link in the top navigation; super-admins also get Plants.
+    const nav = document.querySelector('.cmd-nav');
+    if (nav) {
+      const add = (href, label) => {
+        if (nav.querySelector('[href="' + href + '"]')) return;
+        const a = document.createElement('a'); a.className = 'cmd-tab'; a.href = href; a.textContent = label; nav.appendChild(a);
+      };
+      if (isAdmin()) add('team.html', 'Team');
+      if (isSuper()) add('plants.html', 'Plants');
+      _plantSwitcher(nav);
+    }
+  }
+
+  /** A small "Plant:" drop-down after the menu, shown when you belong to more than one plant. */
+  function _plantSwitcher(nav) {
+    const u = getUser();
+    if (!u || !Array.isArray(u.plants) || u.plants.length < 2 || document.getElementById('plant-switch')) return;
+    if (!document.getElementById('plant-switch-css')) {
+      const st = document.createElement('style'); st.id = 'plant-switch-css';
+      st.textContent = '.plant-switch{font:inherit;font-size:.78rem;font-weight:700;margin-left:10px;padding:5px 8px;border-radius:8px;border:1px solid var(--border,#d5dbe3);background:var(--surface,#fff);color:var(--ink,#1c2430);max-width:210px;cursor:pointer}';
+      document.head.appendChild(st);
+    }
+    const sel = document.createElement('select');
+    sel.id = 'plant-switch'; sel.className = 'plant-switch'; sel.setAttribute('aria-label', 'Switch plant');
+    u.plants.forEach(p => {
+      const o = document.createElement('option'); o.value = p.id; o.textContent = p.short_label || p.name || p.id;
+      if (p.id === u.plant) o.selected = true; sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => switchPlant(sel.value));
+    nav.appendChild(sel);
+  }
+
+  /** Show another plant: remember it for this tab and reload the page. */
+  function switchPlant(id) {
+    if (window.NovusAccess && NovusAccess.setActive(id)) {
+      const url = new URL(location.href); url.searchParams.delete('plant');
+      location.href = url.pathname.split('/').pop() === 'index.html' ? 'hub.html' : url.pathname.split('/').pop() + url.search;
     }
   }
   document.addEventListener('DOMContentLoaded', () => {
@@ -59,6 +90,11 @@ window.NovusCore = (() => {
       const pid  = window.PLANT_CONFIG && window.PLANT_CONFIG.plant.id;
       if (!user || !user.role || (pid && user.plant !== pid)) {
         window.location.replace('index.html');
+        return;
+      }
+      // Super-admin on a project with no plants yet: the only useful page is Plants.
+      if (!user.plant && user.super && !/plants\.html$/.test(location.pathname)) {
+        window.location.replace('plants.html');
         return;
       }
     } catch (_) {
@@ -91,6 +127,12 @@ window.NovusCore = (() => {
   }
 
   /** isAdmin(): may change layout, columns, tabs and people. */
+  /** isSuper(): may create and delete plants and assign people to any plant. */
+  function isSuper() {
+    const u = getUser();
+    return !!(u && u.super);
+  }
+
   function isAdmin() {
     const u = getUser();
     return !!(u && u.role === 'admin');
@@ -972,7 +1014,7 @@ window.NovusCore = (() => {
     el.addEventListener('animationend', () => { el.style.animation = ''; }, { once: true });
   }
 
-  return { requireAuth, navigateTo, logout, getUser, isAdmin, canEditData, Toast, WorkbookCache, _bounceCard,
+  return { requireAuth, navigateTo, logout, getUser, isAdmin, isSuper, switchPlant, canEditData, Toast, WorkbookCache, _bounceCard,
            showCoreValues, hideCoreValues, showRules, hideRules,
            showNeedsAction, hideNeedsAction, showHelp, hideHelp,
            showMaintenance, hideMaintenance,
