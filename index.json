@@ -14,6 +14,111 @@
       "name": "Plant 1730 original layout",
       "description": "Every built-in section, as the Novus Plant 1730 dashboard started.",
       "file": "plant-1730.json"
+    },
+    {
+      "name": "SQDC stand-up",
+      "description": "Safety, Quality, Delivery (production), Cost. The classic daily huddle order, nothing else.",
+      "file": "sqdc-standup.json"
+    },
+    {
+      "name": "Production floor",
+      "description": "Production first and big, with trend charts by line. Highlights underneath.",
+      "file": "production-floor.json"
+    },
+    {
+      "name": "Maintenance and reliability",
+      "description": "Code Red / Code Yellow front and centre, downtime by line, plus trend cards.",
+      "file": "maintenance-reliability.json"
+    },
+    {
+      "name": "Quality and food safety",
+      "description": "Quality and Sanitation side by side, with holds and complaints trends.",
+      "file": "quality-food-safety.json"
+    },
+    {
+      "name": "Warehouse and logistics",
+      "description": "Warehouse, Inventory Control and SAP metrics together.",
+      "file": "warehouse-logistics.json"
+    },
+    {
+      "name": "Safety first",
+      "description": "Safety at the top, full width, with near-miss and incident trends.",
+      "file": "safety-first.json"
+    },
+    {
+      "name": "Executive one-pager",
+      "description": "A short summary: production at a glance, costs, people, highlights.",
+      "file": "executive-one-pager.json"
+    },
+    {
+      "name": "Shift hand-off",
+      "description": "Notes sections for the outgoing shift, plus the production snapshot.",
+      "file": "shift-handoff.json"
+    },
+    {
+      "name": "People and training",
+      "description": "HR, Safety and a few people numbers.",
+      "file": "people-training.json"
+    },
+    {
+      "name": "Cost and inventory",
+      "description": "Costs, Inventory Control and SAP together.",
+      "file": "cost-inventory.json"
+    },
+    {
+      "name": "Everything, three across",
+      "description": "Every built-in section in the same size, three across.",
+      "file": "everything-3-across.json"
+    },
+    {
+      "name": "Everything, two across",
+      "description": "Every built-in section in two columns.",
+      "file": "everything-2-across.json"
+    },
+    {
+      "name": "Scoreboard",
+      "description": "Six big numbers, then the highlights. Good for a wall display.",
+      "file": "scoreboard.json"
+    },
+    {
+      "name": "Weekly review",
+      "description": "Longer trend charts for the weekly leadership review.",
+      "file": "weekly-review.json"
+    },
+    {
+      "name": "Line by line",
+      "description": "A detailed table for every line with goals, and a downtime chart for each.",
+      "file": "line-by-line.json"
+    },
+    {
+      "name": "Lean huddle board",
+      "description": "Problems, actions and wins, plus production numbers. For a continuous-improvement huddle.",
+      "file": "lean-huddle.json"
+    },
+    {
+      "name": "Wall display",
+      "description": "Large and simple for a TV: stacked production, then highlights.",
+      "file": "wall-display.json"
+    },
+    {
+      "name": "Production and warehouse",
+      "description": "Production on top, with Warehouse and Inventory beneath it.",
+      "file": "production-and-warehouse.json"
+    },
+    {
+      "name": "Production and quality",
+      "description": "Production with Quality and Sanitation under it.",
+      "file": "production-and-quality.json"
+    },
+    {
+      "name": "Leadership dashboard",
+      "description": "Costs, people, quality and production in compact form.",
+      "file": "leadership.json"
+    },
+    {
+      "name": "Getting started checklist",
+      "description": "A welcome note and setup checklist. Hide it when your dashboard is ready.",
+      "file": "getting-started.json"
     }
   ]
 }

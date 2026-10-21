@@ -1,0 +1,207 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Line by line",
+  "description": "A detailed table for every line with goals, and a downtime chart for each.",
+  "panels": [],
+  "order": [
+    "panel-production",
+    "panel-highlights",
+    "panel-safety",
+    "panel-quality",
+    "panel-sanitation",
+    "panel-costs",
+    "panel-hr",
+    "panel-sap",
+    "panel-warehouse",
+    "panel-inventory"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 8,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 4,
+    "panel-hr": 4,
+    "panel-sap": 4,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12
+  },
+  "hidden": [
+    "panel:panel-costs",
+    "panel:panel-hr",
+    "panel:panel-inventory",
+    "panel:panel-quality",
+    "panel:panel-safety",
+    "panel:panel-sanitation",
+    "panel:panel-sap",
+    "panel:panel-warehouse"
+  ],
+  "cw": [],
+  "src": {},
+  "hl": [
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    },
+    {
+      "key": "Maintenance",
+      "label": "Maintenance",
+      "icon": "⭐"
+    }
+  ],
+  "prod": {
+    "left": {
+      "show": true
+    },
+    "right": {
+      "tiles": [
+        {
+          "id": "code-red",
+          "label": "Code Red",
+          "sheet": "Maintenance",
+          "field": "Code Red",
+          "agg": "last",
+          "format": "number",
+          "date": "selected",
+          "target": {
+            "better": "down",
+            "red": 3,
+            "amber": 1
+          }
+        },
+        {
+          "id": "code-yellow",
+          "label": "Code Yellow",
+          "sheet": "Maintenance",
+          "field": "Code Yellow",
+          "agg": "last",
+          "format": "number",
+          "date": "selected",
+          "target": {
+            "better": "down",
+            "red": 8,
+            "amber": 4
+          }
+        }
+      ],
+      "drivers": {
+        "show": true
+      },
+      "table": {
+        "show": true,
+        "title": "Lines",
+        "columns": [
+          {
+            "label": "OEE",
+            "field": "OEE",
+            "agg": "avg",
+            "format": "percent0",
+            "date": "selected",
+            "target": {
+              "better": "up",
+              "red": 0.6,
+              "amber": 0.65
+            }
+          },
+          {
+            "label": "Attainment",
+            "field": "Attainment",
+            "agg": "avg",
+            "format": "percent1",
+            "date": "latest",
+            "target": {
+              "better": "up",
+              "red": 0.8,
+              "amber": 0.9
+            }
+          },
+          {
+            "label": "DT",
+            "field": "Downtime",
+            "agg": "sum",
+            "format": "minutes",
+            "date": "selected",
+            "target": {
+              "better": "down",
+              "red": 120,
+              "amber": 60
+            }
+          },
+          {
+            "label": "Planned",
+            "field": "Expected Pounds",
+            "agg": "sum",
+            "format": "number",
+            "date": "latest"
+          },
+          {
+            "label": "Actual",
+            "field": "Actual Pounds",
+            "agg": "sum",
+            "format": "number",
+            "date": "latest"
+          }
+        ]
+      },
+      "charts": [
+        {
+          "id": "pchart-oee",
+          "title": "OEE by line",
+          "type": "line",
+          "sheet": "Production",
+          "scope": "split",
+          "days": 30,
+          "series": [
+            {
+              "label": "OEE",
+              "field": "OEE",
+              "agg": "avg"
+            }
+          ]
+        },
+        {
+          "id": "pchart-att",
+          "title": "Attainment by line",
+          "type": "line",
+          "sheet": "Production",
+          "scope": "split",
+          "days": 30,
+          "series": [
+            {
+              "label": "Attainment",
+              "field": "Attainment",
+              "agg": "avg"
+            }
+          ]
+        },
+        {
+          "id": "pchart-dt",
+          "title": "Downtime by line",
+          "type": "bar",
+          "sheet": "Production",
+          "scope": "split",
+          "days": 14,
+          "series": [
+            {
+              "label": "Downtime (min)",
+              "field": "Downtime",
+              "agg": "sum"
+            }
+          ]
+        }
+      ]
+    },
+    "totals": {
+      "show": false
+    },
+    "blocks": [
+      "table",
+      "top",
+      "charts",
+      "totals"
+    ]
+  }
+}

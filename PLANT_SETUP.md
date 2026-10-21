@@ -11,9 +11,11 @@ Supabase account. You don't need to install anything.
 
 ## 2. Create your database
 
-1. At supabase.com create a new project for your plant. Each plant gets its own.
+1. At supabase.com create a new project. One project can hold all of your plants (see "Several plants in one project" below).
 2. Open SQL Editor > New query, paste all of `data_entries.sql`, press Run. It is safe
    to run again later (after an update, run it again).
+   Then run `startup_actions.sql` the same way (it needs `data_entries.sql` first). It
+   adds the startup action lists described under "Safety and Production extras".
 3. Open Authentication > Providers and make sure Email is on. For a first test you can
    turn off "Confirm email" under Authentication > Sign In / Providers.
 4. Open Project Settings > API. Copy the **Project URL** and the **anon public** key.
@@ -61,6 +63,51 @@ One Supabase project can hold any number of plants. Each plant has its own data,
 - **Deleting a plant is permanent and immediate.** You must type its ID. Everything that belongs to it is erased; people's accounts stay. The last remaining plant cannot be deleted.
 - Power Automate and L2L feeds are configured in `plant-config.js` and belong to the plant whose ID is in that file. Other plants start with those feeds off and use Data Entry. The L2L sync script writes one plant's file.
 - Upgrading from the one-plant version: re-run `data_entries.sql`. Existing admins become super-admins, and existing people and data are attached to the plant that already holds your data. Fill in its name on the Plants page (until then the site keeps using the name from `plant-config.js`).
+
+## Safety and Production extras
+
+- **Near misses by department** (Safety panel): a table of near misses opened and closed per
+  department over the last 30 days counting today, with a Total. Rows: Production, QA,
+  Maintenance, Warehouse, Inventory Control, SAP and Office (Finance and HR | Training
+  added together). Every department's Data Entry sheet has **Near Miss Open** and **Near
+  Miss Closed** columns: type one count per day (Production per line, Warehouse and
+  Inventory Control per site; they are added up). An admin gets the two columns on a
+  department the first time they open it in Data Entry after updating. Counts on a
+  day with no entry are zero.
+- **Startup action lists** (Production Summary): click STARTUP on a line to open that line's
+  action list. It is shared by everyone in the plant. Admins add, tick off and remove
+  actions; everyone else can read. An amber ⚠ beside STARTUP means the line still has open
+  actions. Needs `startup_actions.sql`. Turned off while you are editing the dashboard.
+
+## Connect Leading2Lean (each plant's own key)
+
+Every plant's admins can connect their own Leading2Lean (L2L) account, so OEE, downtime, Code Red and Code Yellow fill in by themselves. Nobody has to hand their API key to anyone else: the admin types it into the **Connection** page for their own plant, and it is stored in Supabase Vault where the website cannot read it back.
+
+One-time setup by whoever owns the Supabase project:
+
+1. Run `data_entries.sql` (the latest version), then `integrations.sql`. If it stops with a Vault message, open **Database > Extensions**, turn on `supabase_vault`, and run it again.
+2. Deploy the pull service (the `supabase/functions/integrations-run` folder), from a computer with the Supabase CLI: `supabase functions deploy integrations-run --no-verify-jwt`. The function checks who is calling itself.
+3. Make up a long random password and store it as a secret: `supabase secrets set CRON_SECRET=your-long-random-text`.
+4. Optional, for an automatic pull every three hours: turn on the `pg_cron` and `pg_net` extensions, then run in the SQL editor (put your project reference and the same CRON_SECRET in):
+
+```sql
+select cron.schedule('plant-integrations-sync', '23 */3 * * *', $$
+  select net.http_post(
+    url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/integrations-run',
+    headers := jsonb_build_object('Content-Type','application/json','x-cron-secret','your-long-random-text'),
+    body := '{"action":"cron"}'::jsonb) $$);
+```
+
+Then each plant's admin opens **Connection** (top menu or Home), enters the L2L company name, site number, the Code Red / Code Yellow dispatch type ids, matches each dashboard line to its L2L line code, pastes the API key, ticks "Turn the connection on", presses **Save**, then **Test connection** and **Pull the last 7 days now**.
+
+Good to know:
+
+- Connected numbers are written into Data Entry for each day, so the dashboard, Weekly KPIs and exports all see them. They show as "from L2L" and are read-only there. Other fields people type are never overwritten.
+- Remove key and disconnect deletes the key from Vault. Numbers already pulled stay.
+- Super-admins and the project owner do not see keys on any page, but the person who owns the Supabase project can technically reach Vault with the project's master key. Treat that account accordingly.
+- Plant 1730's older GitHub-based L2L sync (`sync_l2l_to_dashboard.py`) is separate. If a plant uses the Connection, leave its "l2l" source switched off in `plant-config.js`.
+- Redzone shows as "coming soon". It needs Redzone's API documentation or a sample response before it can be built.
+- Never put the service-role key in any file of the site. The function gets it from Supabase itself.
 
 ## 6. Make the dashboard yours
 

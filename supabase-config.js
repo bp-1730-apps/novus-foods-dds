@@ -652,6 +652,23 @@ window.NovusDB.layoutHistory = {
 };
 
 
+// ── Startup action lists (Production Summary) ─────────────────────────────
+// One shared list per line, per plant. Everyone signed in can read it; admins add,
+// complete and remove actions. Needs startup_actions.sql (run after data_entries.sql).
+window.NovusDB.startupActions = {
+  getAll: (plantId) =>
+    _sb.from('startup_actions').select('*').eq('plant_id', plantId).order('created_at', { ascending: true }),
+  add: (a) =>
+    _sb.from('startup_actions').insert({ plant_id: a.plant_id, line: a.line, text: a.text, created_by: a.created_by || '' }),
+  setDone: (id, done, by) =>
+    _sb.from('startup_actions').update({ done: !!done, done_at: done ? new Date().toISOString() : null, done_by: done ? (by || '') : '' }).eq('id', id),
+  remove: (id) => _sb.from('startup_actions').delete().eq('id', id),
+  subscribe: (callback) =>
+    _sb.channel('startup-actions-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'startup_actions' }, callback)
+      .subscribe(),
+};
+
 // ── NovusAccess: who is signed in, which plants they belong to, which one is showing ──
 // The result lives in sessionStorage 'dds_user' (the page reads it to decide what to
 // SHOW; the database decides what is actually allowed). plant-context.js reads the
@@ -661,18 +678,22 @@ window.NovusAccess = {
 
   /** Ask the database for this person's plants. Resolves { isSuper, plants:[{id,name,short_label,location,config,role}], displayName } or { error }. */
   async load(userId) {
-    const [sa, pm, pl] = await Promise.all([
+    const [sa, pm, pl, pi] = await Promise.all([
       _sb.from('super_admins').select('user_id').eq('user_id', userId),
       _sb.from('plant_members').select('plant_id, role, display_name').eq('user_id', userId),
       _sb.from('plants').select('*').order('name'),
+      // Connections are optional: a project that has not run integrations.sql simply has none.
+      _sb.from('plant_integrations').select('plant_id, provider, enabled').then(r => r, () => ({ data: [] })),
     ]);
     const err = sa.error || pm.error || pl.error;
     if (err) return { error: err.message };
     const isSuper = (sa.data || []).length > 0;
     const roleBy = {}; let displayName = '';
     (pm.data || []).forEach(m => { roleBy[m.plant_id] = m.role; if (m.display_name) displayName = m.display_name; });
+    const connBy = {};
+    ((pi && !pi.error && pi.data) || []).forEach(c => { connBy[c.plant_id] = { provider: c.provider, enabled: !!c.enabled }; });
     const plants = (pl.data || [])
-      .map(p => Object.assign({}, p, { role: isSuper ? 'admin' : roleBy[p.id] }))
+      .map(p => Object.assign({}, p, { role: isSuper ? 'admin' : roleBy[p.id], integration: connBy[p.id] || null }))
       .filter(p => p.role)
       .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id), undefined, { numeric: true }));
     return { isSuper, plants, displayName };

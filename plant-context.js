@@ -28,6 +28,8 @@
       });
     }
     if (cfg.contact) C.plant.contact = cfg.contact;
+    // A live Connection (Leading2Lean) owns the plant's production numbers.
+    C.connection = info.integration && info.integration.enabled ? { provider: info.integration.provider, enabled: true } : { provider: '', enabled: false };
   }
   if (u.plant !== C.plant.fileId) {
     // Another plant: the file's Power Automate / L2L feeds belong to the file's plant, so switch them off.

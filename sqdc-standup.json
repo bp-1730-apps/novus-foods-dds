@@ -1,0 +1,68 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "SQDC stand-up",
+  "description": "Safety, Quality, Delivery (production), Cost. The classic daily huddle order, nothing else.",
+  "panels": [],
+  "order": [
+    "panel-safety",
+    "panel-quality",
+    "panel-production",
+    "panel-costs",
+    "panel-highlights",
+    "panel-sanitation",
+    "panel-hr",
+    "panel-sap",
+    "panel-warehouse",
+    "panel-inventory"
+  ],
+  "spans": {
+    "panel-safety": 6,
+    "panel-quality": 6,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 12,
+    "panel-hr": 4,
+    "panel-sap": 4,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12
+  },
+  "hidden": [
+    "panel:panel-hr",
+    "panel:panel-inventory",
+    "panel:panel-sanitation",
+    "panel:panel-sap",
+    "panel:panel-warehouse"
+  ],
+  "cw": [],
+  "src": {},
+  "hl": [
+    {
+      "key": "Quality",
+      "label": "Quality",
+      "icon": "🥇"
+    },
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    },
+    {
+      "key": "Sanitation",
+      "label": "Sanitation",
+      "icon": "🧼"
+    },
+    {
+      "key": "Warehouse",
+      "label": "Warehouse",
+      "icon": "🏭"
+    },
+    {
+      "key": "Maintenance",
+      "label": "Maintenance",
+      "icon": "⭐"
+    }
+  ],
+  "prod": null
+}

@@ -1,0 +1,166 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Scoreboard",
+  "description": "Six big numbers, then the highlights. Good for a wall display.",
+  "panels": [
+    {
+      "id": "score",
+      "title": "Scoreboard",
+      "icon": "🏁",
+      "span": 12
+    }
+  ],
+  "order": [
+    "cpanel-score",
+    "panel-highlights",
+    "panel-safety",
+    "panel-quality",
+    "panel-production",
+    "panel-sanitation",
+    "panel-costs",
+    "panel-hr",
+    "panel-sap",
+    "panel-warehouse",
+    "panel-inventory"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 8,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 4,
+    "panel-hr": 4,
+    "panel-sap": 4,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12,
+    "cpanel-score": 12
+  },
+  "hidden": [
+    "panel:panel-costs",
+    "panel:panel-hr",
+    "panel:panel-inventory",
+    "panel:panel-production",
+    "panel:panel-quality",
+    "panel:panel-safety",
+    "panel:panel-sanitation",
+    "panel:panel-sap",
+    "panel:panel-warehouse"
+  ],
+  "cw": [
+    {
+      "id": "w23",
+      "panel_id": "cpanel-score",
+      "widget_type": "metric",
+      "sheet": "Production",
+      "field": "OEE",
+      "agg": "avg",
+      "range_days": 7,
+      "target": 0.65,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "OEE (7-day average)",
+      "body": null
+    },
+    {
+      "id": "w24",
+      "panel_id": "cpanel-score",
+      "widget_type": "metric",
+      "sheet": "Production",
+      "field": "Attainment",
+      "agg": "avg",
+      "range_days": 7,
+      "target": 0.9,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Attainment (7-day average)",
+      "body": null
+    },
+    {
+      "id": "w25",
+      "panel_id": "cpanel-score",
+      "widget_type": "metric",
+      "sheet": "Production",
+      "field": "Downtime",
+      "agg": "sum",
+      "range_days": 7,
+      "target": 500,
+      "target_dir": "lte",
+      "full_width": false,
+      "label": "Downtime, minutes (7 days)",
+      "body": null
+    },
+    {
+      "id": "w26",
+      "panel_id": "cpanel-score",
+      "widget_type": "metric",
+      "sheet": "Production",
+      "field": "Actual Pounds",
+      "agg": "sum",
+      "range_days": 7,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Pounds produced (7 days)",
+      "body": null
+    },
+    {
+      "id": "w27",
+      "panel_id": "cpanel-score",
+      "widget_type": "metric",
+      "sheet": "Maintenance",
+      "field": "Code Red",
+      "agg": "latest",
+      "range_days": 30,
+      "target": 1,
+      "target_dir": "lte",
+      "full_width": false,
+      "label": "Code Red",
+      "body": null
+    },
+    {
+      "id": "w28",
+      "panel_id": "cpanel-score",
+      "widget_type": "metric",
+      "sheet": "Maintenance",
+      "field": "Code Yellow",
+      "agg": "latest",
+      "range_days": 30,
+      "target": 4,
+      "target_dir": "lte",
+      "full_width": false,
+      "label": "Code Yellow",
+      "body": null
+    }
+  ],
+  "src": {},
+  "hl": [
+    {
+      "key": "Quality",
+      "label": "Quality",
+      "icon": "🥇"
+    },
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    },
+    {
+      "key": "Sanitation",
+      "label": "Sanitation",
+      "icon": "🧼"
+    },
+    {
+      "key": "Warehouse",
+      "label": "Warehouse",
+      "icon": "🏭"
+    },
+    {
+      "key": "Maintenance",
+      "label": "Maintenance",
+      "icon": "⭐"
+    }
+  ],
+  "prod": null
+}

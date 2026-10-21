@@ -1,0 +1,54 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Production and warehouse",
+  "description": "Production on top, with Warehouse and Inventory beneath it.",
+  "panels": [],
+  "order": [
+    "panel-production",
+    "panel-warehouse",
+    "panel-inventory",
+    "panel-highlights",
+    "panel-safety",
+    "panel-quality",
+    "panel-sanitation",
+    "panel-costs",
+    "panel-hr",
+    "panel-sap"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 8,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 4,
+    "panel-hr": 4,
+    "panel-sap": 4,
+    "panel-warehouse": 6,
+    "panel-inventory": 6,
+    "panel-highlights": 12
+  },
+  "hidden": [
+    "panel:panel-costs",
+    "panel:panel-hr",
+    "panel:panel-quality",
+    "panel:panel-safety",
+    "panel:panel-sanitation",
+    "panel:panel-sap"
+  ],
+  "cw": [],
+  "src": {},
+  "hl": [
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    },
+    {
+      "key": "Warehouse",
+      "label": "Warehouse",
+      "icon": "🏭"
+    }
+  ],
+  "prod": null
+}

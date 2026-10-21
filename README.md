@@ -37,6 +37,10 @@ site for another plant.
 | Power Automate file | `dashboard-data.json`, other daily numbers from Excel/SharePoint. |
 | Redzone | Planned. Switch is in the config; not built yet. |
 
+## Per-plant Leading2Lean connection
+
+`integrations.html` (the **Connection** link, admins only) lets each plant enter its own L2L key and settings. `integrations.sql` stores the key in Supabase Vault (write-only) and `supabase/functions/integrations-run/` pulls the numbers into Data Entry. Setup is in PLANT_SETUP.md. Redzone is a placeholder.
+
 ## Roles
 
 Roles are per plant. Admin can change the dashboard layout, Data Entry columns and tabs, KPIs and people of that plant. A super-admin is an admin of every plant and can also create and delete plants and assign people to them. Editor can type Data Entry values, fill in the highlight cards, and post announcements and play calls. Viewer can look. These are enforced by the database (row-level security), not just hidden buttons.
@@ -46,6 +50,6 @@ Roles are per plant. Admin can change the dashboard layout, Data Entry columns a
 `index.html` sign-in, `hub.html` home, `team.html` people of the current plant, `plants.html` add/delete plants (super-admins), `plant-context.js` points every page at the plant being shown, the pages above, `novus-core.js` /
 `novus-interactions.js` / `novus-styles.css` shared code and styling,
 `dds-editor.js/.css` the edit-in-place tools, `kpi-source.js` weekly roll-ups,
-`supabase-config.js` database access, `data_entries.sql` the database setup,
+`supabase-config.js` database access, `data_entries.sql` and `startup_actions.sql` the database setup,
 `layouts/` ready-made dashboard layouts, `.github/workflows/` optional automations,
 `archive/` retired pages kept for reference.

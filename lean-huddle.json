@@ -1,0 +1,262 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Lean huddle board",
+  "description": "Problems, actions and wins, plus production numbers. For a continuous-improvement huddle.",
+  "panels": [
+    {
+      "id": "prob",
+      "title": "Problems to solve",
+      "icon": "🧩",
+      "span": 4
+    },
+    {
+      "id": "act",
+      "title": "Actions this week",
+      "icon": "✅",
+      "span": 4
+    },
+    {
+      "id": "win",
+      "title": "Wins to celebrate",
+      "icon": "🎉",
+      "span": 4
+    }
+  ],
+  "order": [
+    "cpanel-prob",
+    "cpanel-act",
+    "cpanel-win",
+    "panel-production",
+    "panel-highlights",
+    "panel-safety",
+    "panel-quality",
+    "panel-sanitation",
+    "panel-costs",
+    "panel-hr",
+    "panel-sap",
+    "panel-warehouse",
+    "panel-inventory"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 8,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 4,
+    "panel-hr": 4,
+    "panel-sap": 4,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12,
+    "cpanel-prob": 4,
+    "cpanel-act": 4,
+    "cpanel-win": 4
+  },
+  "hidden": [
+    "panel:panel-costs",
+    "panel:panel-hr",
+    "panel:panel-inventory",
+    "panel:panel-quality",
+    "panel:panel-safety",
+    "panel:panel-sanitation",
+    "panel:panel-sap",
+    "panel:panel-warehouse"
+  ],
+  "cw": [
+    {
+      "id": "w29",
+      "panel_id": "cpanel-prob",
+      "widget_type": "text",
+      "sheet": "(text)",
+      "field": "(text)",
+      "agg": null,
+      "range_days": 0,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Top problems",
+      "body": "List the top three problems today. Edit this note."
+    },
+    {
+      "id": "w30",
+      "panel_id": "cpanel-prob",
+      "widget_type": "metric",
+      "sheet": "Maintenance",
+      "field": "Code Red",
+      "agg": "latest",
+      "range_days": 30,
+      "target": 1,
+      "target_dir": "lte",
+      "full_width": false,
+      "label": "Code Red",
+      "body": null
+    },
+    {
+      "id": "w31",
+      "panel_id": "cpanel-act",
+      "widget_type": "text",
+      "sheet": "(text)",
+      "field": "(text)",
+      "agg": null,
+      "range_days": 0,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Open actions",
+      "body": "Who is doing what by when."
+    },
+    {
+      "id": "w32",
+      "panel_id": "cpanel-act",
+      "widget_type": "metric",
+      "sheet": "HR | Training",
+      "field": "Near Miss Reports",
+      "agg": "sum",
+      "range_days": 7,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Near misses (7 days)",
+      "body": null
+    },
+    {
+      "id": "w33",
+      "panel_id": "cpanel-win",
+      "widget_type": "text",
+      "sheet": "(text)",
+      "field": "(text)",
+      "agg": null,
+      "range_days": 0,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Wins",
+      "body": "Record improvements and recognitions here."
+    },
+    {
+      "id": "w34",
+      "panel_id": "cpanel-win",
+      "widget_type": "metric",
+      "sheet": "HR | Training",
+      "field": "Days Without Incident",
+      "agg": "latest",
+      "range_days": 30,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Days without incident",
+      "body": null
+    }
+  ],
+  "src": {},
+  "hl": [
+    {
+      "key": "Quality",
+      "label": "Quality",
+      "icon": "🥇"
+    },
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    },
+    {
+      "key": "Sanitation",
+      "label": "Sanitation",
+      "icon": "🧼"
+    },
+    {
+      "key": "Warehouse",
+      "label": "Warehouse",
+      "icon": "🏭"
+    },
+    {
+      "key": "Maintenance",
+      "label": "Maintenance",
+      "icon": "⭐"
+    }
+  ],
+  "prod": {
+    "left": {
+      "show": false
+    },
+    "right": {
+      "tiles": [
+        {
+          "id": "code-red",
+          "label": "Code Red",
+          "sheet": "Maintenance",
+          "field": "Code Red",
+          "agg": "last",
+          "format": "number",
+          "date": "selected",
+          "target": {
+            "better": "down",
+            "red": 3,
+            "amber": 1
+          }
+        },
+        {
+          "id": "code-yellow",
+          "label": "Code Yellow",
+          "sheet": "Maintenance",
+          "field": "Code Yellow",
+          "agg": "last",
+          "format": "number",
+          "date": "selected",
+          "target": {
+            "better": "down",
+            "red": 8,
+            "amber": 4
+          }
+        }
+      ],
+      "table": {
+        "show": true,
+        "title": "Lines",
+        "columns": [
+          {
+            "label": "OEE",
+            "field": "OEE",
+            "agg": "avg",
+            "format": "percent0",
+            "date": "selected",
+            "target": {
+              "better": "up",
+              "red": 0.6,
+              "amber": 0.65
+            }
+          },
+          {
+            "label": "Attainment",
+            "field": "Attainment",
+            "agg": "avg",
+            "format": "percent1",
+            "date": "latest",
+            "target": {
+              "better": "up",
+              "red": 0.8,
+              "amber": 0.9
+            }
+          },
+          {
+            "label": "DT",
+            "field": "Downtime",
+            "agg": "sum",
+            "format": "minutes",
+            "date": "selected",
+            "target": {
+              "better": "down",
+              "red": 120,
+              "amber": 60
+            }
+          }
+        ]
+      }
+    },
+    "totals": {
+      "show": false
+    }
+  }
+}

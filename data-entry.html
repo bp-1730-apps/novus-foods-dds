@@ -37,27 +37,27 @@
     const CITIES = CITY_LIST.length ? { field: 'city', label: 'City', values: CITY_LIST.map(c => c.name) } : null;
     const BASE_DEPARTMENTS = [
       { name: 'Inventory Control', panel: 'panel-inventory', dim: CITIES,
-        seed: [['Planned Cycle Counts','number'],['Counts Completed','number'],['Completion %','calc','',['counts_completed / planned_cycle_counts','percent']],['Variants','number'],['Bin Accuracy','percent'],['Critical Items','number'],['Bins Counted','number'],['Materials Counted','number'],['Notes','text'],['Near Miss','number']] },
+        seed: [['Planned Cycle Counts','number'],['Counts Completed','number'],['Completion %','calc','',['counts_completed / planned_cycle_counts','percent']],['Variants','number'],['Bin Accuracy','percent'],['Critical Items','number'],['Bins Counted','number'],['Materials Counted','number'],['Notes','text'],['Near Miss','number'],['Near Miss Open','number'],['Near Miss Closed','number']] },
       { name: 'Production', panel: 'panel-production',
         dim: { field: 'line', label: 'Line', values: 'LINES' },
-        seed: [['OEE','percent'],['Expected Pounds','number','lbs'],['Actual Pounds','number','lbs'],['Yield','calc','',['actual_pounds / expected_pounds','percent']],['Attainment','calc','',['actual_pounds / expected_pounds','percent']],['Start Up','select','',YN],['CIL','select','',YN],['Downtime','number','min'],['Mechanical Downtime Drivers','text'],['Material Downtime Drivers','text'],['Near Miss','number']] },
+        seed: [['OEE','percent'],['Expected Pounds','number','lbs'],['Actual Pounds','number','lbs'],['Yield','calc','',['actual_pounds / expected_pounds','percent']],['Attainment','calc','',['actual_pounds / expected_pounds','percent']],['Start Up','select','',YN],['CIL','select','',YN],['Downtime','number','min'],['Mechanical Downtime Drivers','text'],['Material Downtime Drivers','text'],['Near Miss','number'],['Near Miss Open','number'],['Near Miss Closed','number']] },
       // Warehouse: the Cerritos row IS the Walmart business. The dashboard's
       // "Walmart Fill Rate %" reads the Cerritos row's Fill Rate %, so this row is
       // labelled Walmart here and its Fill Rate % is what feeds that dashboard tile.
       // (Buena Park's row feeds "Overall Fill Rate %".)
       { name: 'Warehouse', panel: 'panel-warehouse',
         dim: CITIES ? Object.assign({}, CITIES, { display: CITY_DISPLAY }) : null,
-        seed: [['Inbound Expected','number'],['Inbound Received','number'],['Inbound Expected STOs','number'],['Inbound Received STOs','number'],['Number of cases scheduled to ship','number'],['Number of loads','number'],['Number of cases shipped','number'],['Fill Rate %','calc','',['number_of_cases_shipped / number_of_cases_scheduled_to_ship','percent']],['CPMH','number'],['Near Miss','number'],['Comments','text']] },
+        seed: [['Inbound Expected','number'],['Inbound Received','number'],['Inbound Expected STOs','number'],['Inbound Received STOs','number'],['Number of cases scheduled to ship','number'],['Number of loads','number'],['Number of cases shipped','number'],['Fill Rate %','calc','',['number_of_cases_shipped / number_of_cases_scheduled_to_ship','percent']],['CPMH','number'],['Near Miss','number'],['Comments','text'],['Near Miss Open','number'],['Near Miss Closed','number']] },
       { name: 'QA', panel: 'panel-quality', dim: null,
-        seed: [['Holds','number'],['Holds/COA','number'],['PEM %','number'],['CPM','number'],['Number of Complaints','number'],['Pre-Op','percent'],['MSS','percent'],['Notes','text'],['Near Miss','number']] },
+        seed: [['Holds','number'],['Holds/COA','number'],['PEM %','number'],['CPM','number'],['Number of Complaints','number'],['Pre-Op','percent'],['MSS','percent'],['Notes','text'],['Near Miss','number'],['Near Miss Open','number'],['Near Miss Closed','number']] },
       { name: 'SAP', panel: 'panel-sap', dim: null,
-        seed: [['COGI','number'],['Variances','number','$'],['Open Process Orders','number'],['TECO','number'],['Receiving Tasks','number'],['Outbound Tasks','number'],['Warehouse Tasks','number'],['Notes','text'],['Near Miss','number']] },
+        seed: [['COGI','number'],['Variances','number','$'],['Open Process Orders','number'],['TECO','number'],['Receiving Tasks','number'],['Outbound Tasks','number'],['Warehouse Tasks','number'],['Notes','text'],['Near Miss','number'],['Near Miss Open','number'],['Near Miss Closed','number']] },
       { name: 'Maintenance', panel: 'panel-production', dim: null,
-        seed: [['Work Orders Completed','number'],['Work Orders Planned','number'],['PM Completion','number'],['PM Priority Line Completion','number'],['Code Red','number'],['Code Yellow','number'],['Special Projects','number'],['Near Miss','number']] },
+        seed: [['Work Orders Completed','number'],['Work Orders Planned','number'],['PM Completion','number'],['PM Priority Line Completion','number'],['Code Red','number'],['Code Yellow','number'],['Special Projects','number'],['Near Miss','number'],['Near Miss Open','number'],['Near Miss Closed','number']] },
       { name: 'Finance', panel: 'panel-costs', dim: null,
-        seed: [['$/Pound - Direct','number','$'],['$/Pound - Indirect','number','$'],['OT - QA','number','hrs'],['OT - Production','number','hrs'],['OT - Finance','number','hrs'],['OT - Warehouse','number','hrs'],['OT - HR | Training','number','hrs'],['OT - SAP','number','hrs'],['OT - Maintenance','number','hrs'],['Total Overtime','number','hrs'],['Conversion Cost','number','$'],['Target Conversion Cost','number','$'],['Pounds/hour - Direct','number'],['Pounds/hour - Indirect','number'],['Target Pounds','number','lbs'],['Pounds Produced','number','lbs'],['Disposal Quantity','number'],['Disposal Cost','number','$'],['Near Miss','number']] },
+        seed: [['$/Pound - Direct','number','$'],['$/Pound - Indirect','number','$'],['OT - QA','number','hrs'],['OT - Production','number','hrs'],['OT - Finance','number','hrs'],['OT - Warehouse','number','hrs'],['OT - HR | Training','number','hrs'],['OT - SAP','number','hrs'],['OT - Maintenance','number','hrs'],['Total Overtime','number','hrs'],['Conversion Cost','number','$'],['Target Conversion Cost','number','$'],['Pounds/hour - Direct','number'],['Pounds/hour - Indirect','number'],['Target Pounds','number','lbs'],['Pounds Produced','number','lbs'],['Disposal Quantity','number'],['Disposal Cost','number','$'],['Near Miss','number'],['Near Miss Open','number'],['Near Miss Closed','number']] },
       { name: 'HR | Training', panel: 'panel-hr', dim: null,
-        seed: [['Trainings Complete','number'],['Number of Meal Penalties','number'],['Near Miss Reports','number'],['Safety Audits','number'],['Days Without Incident','number'],['Head Count - Direct','number'],['Head Count - Indirect','number']] },
+        seed: [['Trainings Complete','number'],['Number of Meal Penalties','number'],['Near Miss Reports','number'],['Safety Audits','number'],['Days Without Incident','number'],['Head Count - Direct','number'],['Head Count - Indirect','number'],['Near Miss Open','number'],['Near Miss Closed','number']] },
     ];
     // Dashboard panels a column can be pinned to (same ids as dds-dashboard.html).
     const DASH_PANELS = [
@@ -539,7 +539,9 @@
   const L2L_OWNED = { 'Production': ['OEE', 'Downtime'], 'Maintenance': ['Code Red', 'Code Yellow'] };
   function l2lOwned(m) {
     const l = PLANT_CONFIG.sources && PLANT_CONFIG.sources.l2l;
-    return !!(l && l.enabled && (L2L_OWNED[DEPT.name] || []).includes(m.label));
+    const c = PLANT_CONFIG.connection;
+    const on = (l && l.enabled) || (c && c.enabled && c.provider === 'l2l');
+    return !!(on && (L2L_OWNED[DEPT.name] || []).includes(m.label));
   }
 
   function renderGrid(keepTyped) {

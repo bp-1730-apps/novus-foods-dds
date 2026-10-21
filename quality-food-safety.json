@@ -1,0 +1,107 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Quality and food safety",
+  "description": "Quality and Sanitation side by side, with holds and complaints trends.",
+  "panels": [
+    {
+      "id": "qtrends",
+      "title": "Quality trends",
+      "icon": "📈",
+      "span": 12
+    }
+  ],
+  "order": [
+    "cpanel-qtrends",
+    "panel-quality",
+    "panel-sanitation",
+    "panel-highlights",
+    "panel-safety",
+    "panel-production",
+    "panel-costs",
+    "panel-hr",
+    "panel-sap",
+    "panel-warehouse",
+    "panel-inventory"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 6,
+    "panel-production": 12,
+    "panel-sanitation": 6,
+    "panel-costs": 4,
+    "panel-hr": 4,
+    "panel-sap": 4,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12,
+    "cpanel-qtrends": 12
+  },
+  "hidden": [
+    "panel:panel-costs",
+    "panel:panel-hr",
+    "panel:panel-inventory",
+    "panel:panel-production",
+    "panel:panel-safety",
+    "panel:panel-sap",
+    "panel:panel-warehouse"
+  ],
+  "cw": [
+    {
+      "id": "w5",
+      "panel_id": "cpanel-qtrends",
+      "widget_type": "line",
+      "sheet": "QA",
+      "field": "Holds",
+      "agg": null,
+      "range_days": 30,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Holds, last 30 days",
+      "body": null
+    },
+    {
+      "id": "w6",
+      "panel_id": "cpanel-qtrends",
+      "widget_type": "line",
+      "sheet": "QA",
+      "field": "Number of Complaints",
+      "agg": null,
+      "range_days": 30,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Complaints, last 30 days",
+      "body": null
+    },
+    {
+      "id": "w7",
+      "panel_id": "cpanel-qtrends",
+      "widget_type": "bar",
+      "sheet": "QA",
+      "field": "Holds",
+      "agg": null,
+      "range_days": 14,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Holds per day",
+      "body": null
+    }
+  ],
+  "src": {},
+  "hl": [
+    {
+      "key": "Quality",
+      "label": "Quality",
+      "icon": "🥇"
+    },
+    {
+      "key": "Sanitation",
+      "label": "Sanitation",
+      "icon": "🧼"
+    }
+  ],
+  "prod": null
+}

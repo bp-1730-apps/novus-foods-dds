@@ -1,0 +1,121 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Cost and inventory",
+  "description": "Costs, Inventory Control and SAP together.",
+  "panels": [
+    {
+      "id": "cost",
+      "title": "Cost trends",
+      "icon": "💰",
+      "span": 12
+    }
+  ],
+  "order": [
+    "cpanel-cost",
+    "panel-costs",
+    "panel-inventory",
+    "panel-sap",
+    "panel-highlights",
+    "panel-safety",
+    "panel-quality",
+    "panel-production",
+    "panel-sanitation",
+    "panel-hr",
+    "panel-warehouse"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 8,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 8,
+    "panel-hr": 4,
+    "panel-sap": 12,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12,
+    "cpanel-cost": 12
+  },
+  "hidden": [
+    "panel:panel-hr",
+    "panel:panel-production",
+    "panel:panel-quality",
+    "panel:panel-safety",
+    "panel:panel-sanitation",
+    "panel:panel-warehouse"
+  ],
+  "cw": [
+    {
+      "id": "w20",
+      "panel_id": "cpanel-cost",
+      "widget_type": "line",
+      "sheet": "Finance",
+      "field": "$/Pound - Direct",
+      "agg": null,
+      "range_days": 30,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Cost per pound (direct), 30 days",
+      "body": null
+    },
+    {
+      "id": "w21",
+      "panel_id": "cpanel-cost",
+      "widget_type": "line",
+      "sheet": "Finance",
+      "field": "Conversion Cost",
+      "agg": null,
+      "range_days": 30,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Conversion cost, 30 days",
+      "body": null
+    },
+    {
+      "id": "w22",
+      "panel_id": "cpanel-cost",
+      "widget_type": "area",
+      "sheet": "Finance",
+      "field": "OT-Production",
+      "agg": null,
+      "range_days": 30,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Overtime: production",
+      "body": null
+    }
+  ],
+  "src": {},
+  "hl": [
+    {
+      "key": "Quality",
+      "label": "Quality",
+      "icon": "🥇"
+    },
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    },
+    {
+      "key": "Sanitation",
+      "label": "Sanitation",
+      "icon": "🧼"
+    },
+    {
+      "key": "Warehouse",
+      "label": "Warehouse",
+      "icon": "🏭"
+    },
+    {
+      "key": "Maintenance",
+      "label": "Maintenance",
+      "icon": "⭐"
+    }
+  ],
+  "prod": null
+}

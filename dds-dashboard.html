@@ -232,6 +232,37 @@
     .metric-value.ptone-green { color:#047857 !important; } .metric-value.ptone-amber { color:#b45309 !important; } .metric-value.ptone-red { color:#b91c1c !important; }
     .prod-goal { font-size:.62rem; color:var(--ink3); margin-top:2px; }
     #prod-line-modal { position:fixed; inset:0; z-index:10010; background:rgba(15,23,42,.55); display:flex; align-items:center; justify-content:center; padding:12px; }
+
+    /* Near misses by department (Safety panel) */
+    .nm-wrap { margin-top:12px; }
+    .nm-title { font-size:.68rem; font-weight:800; color:var(--ink3); text-transform:uppercase; letter-spacing:.05em; margin-bottom:5px; display:flex; justify-content:space-between; gap:8px; }
+    .nm-title span { font-weight:600; text-transform:none; letter-spacing:0; color:var(--ink4); }
+    .nm-table { width:100%; border-collapse:collapse; font-size:.74rem; }
+    .nm-table th { text-align:right; font-size:.62rem; color:var(--ink3); text-transform:uppercase; letter-spacing:.04em; padding:3px 6px; border-bottom:1.5px solid var(--border); }
+    .nm-table th:first-child, .nm-table td:first-child { text-align:left; }
+    .nm-table td { text-align:right; padding:4px 6px; border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; color:var(--ink); }
+    .nm-table td:first-child { font-weight:600; }
+    .nm-table tr.nm-total td { font-weight:800; border-top:1.5px solid var(--border2); border-bottom:none; background:var(--surface2); }
+    .nm-table td.nm-zero { color:var(--ink4); } .nm-empty { text-align:center !important; color:var(--ink4); }
+
+    /* Startup action lists (Production Summary) */
+    .su-pill { cursor:pointer; } .su-pill:hover { filter:brightness(.96); outline:1px solid var(--border2); }
+    .su-pill .su-tail { display:inline-flex; align-items:center; gap:4px; }
+    .su-warn { color:#d97706; font-size:.72rem; line-height:1; }
+    #su-pop { position:fixed; z-index:10050; width:min(300px,calc(100vw - 16px)); background:var(--surface); color:var(--ink); border:1px solid var(--border2); border-radius:12px; box-shadow:0 14px 40px rgba(15,23,42,.35); font-size:.78rem; overflow:hidden; }
+    #su-pop .su-head { display:flex; align-items:center; gap:8px; padding:8px 10px; background:linear-gradient(135deg,var(--green-d),var(--green)); color:#fff; font-weight:800; }
+    #su-pop .su-head span { flex:1; } #su-pop .su-x { border:1px solid rgba(255,255,255,.4); background:rgba(255,255,255,.15); color:#fff; border-radius:6px; min-width:26px; min-height:26px; cursor:pointer; }
+    #su-pop .su-body { padding:8px 10px; max-height:260px; overflow-y:auto; display:grid; gap:5px; }
+    #su-pop .su-item { display:flex; align-items:flex-start; gap:7px; padding:5px 6px; border:1px solid var(--border); border-radius:7px; }
+    #su-pop .su-item.done .su-text { text-decoration:line-through; color:var(--ink4); }
+    #su-pop .su-text { flex:1; overflow-wrap:anywhere; line-height:1.35; }
+    #su-pop .su-item input[type=checkbox] { margin-top:2px; cursor:pointer; }
+    #su-pop .su-rm { border:none; background:none; color:var(--red-l); cursor:pointer; font-size:.9rem; line-height:1; padding:0 2px; }
+    #su-pop .su-sub { font-size:.6rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--ink3); margin-top:4px; }
+    #su-pop .su-add { display:flex; gap:6px; padding:8px 10px; border-top:1px solid var(--border); }
+    #su-pop .su-add input { flex:1; min-width:0; font:inherit; padding:5px 7px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--ink); }
+    #su-pop .su-add button { font:inherit; font-weight:700; padding:5px 10px; border-radius:6px; border:none; background:var(--green); color:#fff; cursor:pointer; }
+    #su-pop .su-none { color:var(--ink4); padding:6px 2px; } #su-pop .su-note { padding:0 10px 8px; font-size:.64rem; color:var(--ink4); }
     .plm-card { background:var(--surface); color:var(--ink); border-radius:14px; width:min(820px,100%); max-height:92vh; display:flex; flex-direction:column; box-shadow:0 24px 70px rgba(15,23,42,.45); overflow:hidden; }
     .plm-head { display:flex; align-items:center; gap:12px; padding:12px 16px; background:linear-gradient(135deg,var(--green-d),var(--green)); color:#fff; }
     .plm-head strong { font-size:1.05rem; } .plm-sub { flex:1; font-size:.72rem; opacity:.85; }
@@ -467,6 +498,13 @@
           <div class="metric-box"><div class="metric-label">Near Misses</div><div class="metric-value" id="near-misses" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
           <div class="metric-box"><div class="metric-label">Safety Audits</div><div class="metric-value" id="safety-audits" contenteditable="true" oninput="saveManual(this.id)">—</div></div>
         </div>
+        <div class="nm-wrap" id="nm-wrap">
+          <div class="nm-title">Near misses by department <span id="nm-range">last 30 days</span></div>
+          <table class="nm-table">
+            <thead><tr><th>Department</th><th>Opened</th><th>Closed</th></tr></thead>
+            <tbody id="nm-body"><tr><td colspan="3" class="nm-empty">—</td></tr></tbody>
+          </table>
+        </div>
       </div>
       <div class="resizer"></div>
     </div>
@@ -689,9 +727,13 @@ function regression(y){const n=y.length;if(n<2)return y;let sx=0,sy=0,sxy=0,sx2=
 const PROD_FORMATS = { percent0:'Percent (95%)', percent1:'Percent (95.2%)', minutes:'Minutes (12m)', number:'Number', decimal2:'Number, 2 decimals', text:'Text', yesno:'Yes / No' };
 const PROD_AGGS    = { last:'Latest entry', sum:'Total', avg:'Average' };
 const PROD_L2L     = { 'Production':['OEE','Downtime'], 'Maintenance':['Code Red','Code Yellow'] };
-function prodIsL2L(sheetName, field){
+function prodIsFileL2L(sheetName, field){   // fed by the GitHub-synced l2l-data.json file
   const l = window.PLANT_CONFIG && PLANT_CONFIG.sources && PLANT_CONFIG.sources.l2l;
   return !!(l && l.enabled && (PROD_L2L[sheetName]||[]).includes(field));
+}
+function prodIsL2L(sheetName, field){       // owned by L2L either way: the file, or this plant's Connection
+  const c = window.PLANT_CONFIG && PLANT_CONFIG.connection;
+  return prodIsFileL2L(sheetName, field) || !!(c && c.enabled && c.provider === 'l2l' && (PROD_L2L[sheetName]||[]).includes(field));
 }
 const PROD_DEFAULT = {
   title:'Production Summary', icon:'⚙️', lines:'all',
@@ -926,7 +968,7 @@ function prodOpenLine(line, from){
   const pills = cfg.left.pills.map(p=>{
     const vals = prodRowsOn(prod, latestDs).filter(r=>prodIsLine(r,line)).map(r=>valByKey(r,p.field)).filter(v=>v!=null);
     const ok = vals.length>0 && !vals.some(v=>yn(v)==='No') && vals.some(v=>yn(v)==='Yes');
-    return `<span class="status-pill ${ok?'pill-yes':'pill-no'}"><span class="pill-label">${cwEsc(p.label)}</span><span>${ok?'✓':'✗'}</span></span>`;
+    return suPillHtml(p, line, ok, 'span');
   }).join(' ');
   const m = document.createElement('div'); m.id = 'prod-line-modal';
   m.innerHTML = `<div class="plm-card" role="dialog" aria-modal="true" aria-label="${cwEsc(prodLineLabel(line))} detail">
@@ -949,6 +991,123 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Escape') prodCloseLine();
   else if(e.key==='Enter' && !(window.EDIT && EDIT.on) && e.target.matches && e.target.matches('[data-pline]')) prodOpenLine(e.target.dataset.pline, e.target);
 });
+
+// ── Near misses by department (Safety panel) ────────────────────────────────
+// Each department's sheet has "Near Miss Open" and "Near Miss Closed" (one count per day;
+// Production has one row per line, Warehouse and Inventory Control may have one per site).
+// The table adds up the last 30 days counting today (today and the 29 days before it).
+const NM_DEPTS = [['Production',['Production']],['QA',['QA']],['Maintenance',['Maintenance']],['Warehouse',['Warehouse']],
+  ['Inventory Control',['Inventory Control']],['SAP',['SAP']],['Office',['Finance','HR | Training']]];
+const NM_DAYS = 30;
+function nmRender(){
+  const body = document.getElementById('nm-body'); if(!body) return;
+  const now = new Date(), ymd = d=>`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate()-(NM_DAYS-1));
+  const lo = ymd(from), hi = ymd(now);
+  const rg = document.getElementById('nm-range'); if(rg) rg.textContent = `last ${NM_DAYS} days`;
+  let tOpen = 0, tClosed = 0;
+  const num = v=>{ const n = Number(v); return (v==null||v===''||isNaN(n)) ? 0 : n; };
+  const cell = n=>`<td${n?'':' class="nm-zero"'}>${n}</td>`;
+  const rows = NM_DEPTS.map(([label, sheets])=>{
+    let o = 0, c = 0;
+    sheets.forEach(sn=>sheet(sn).forEach(r=>{
+      const ds = toDS(parseDate(r.Date)); if(!ds || ds<lo || ds>hi) return;
+      o += num(valByKey(r,'Near Miss Open')); c += num(valByKey(r,'Near Miss Closed'));
+    }));
+    tOpen += o; tClosed += c;
+    return `<tr><td>${cwEsc(label)}</td>${cell(o)}${cell(c)}</tr>`;
+  });
+  body.innerHTML = rows.join('') + `<tr class="nm-total"><td>Total</td><td>${tOpen}</td><td>${tClosed}</td></tr>`;
+}
+
+// ── Startup action lists ─────────────────────────────────────────────────────
+// Clicking STARTUP on a line opens that line's action list. The list is one shared set per plant
+// (table startup_actions), so everybody sees the same actions. Admins add, complete and remove;
+// everyone else can read. An amber ⚠ next to STARTUP means the line still has open actions.
+let STARTUP_ACTIONS = [], SU_LINE = null, SU_ANCHOR = null;
+const suSame = (a,b)=> String(a||'').trim().toUpperCase() === String(b||'').trim().toUpperCase();
+const suIsPill = p => /^start\s*up$/i.test(String((p&&p.field)||'').trim());
+const suOpenFor = line => STARTUP_ACTIONS.filter(a=>!a.done && suSame(a.line,line));
+async function loadStartupActions(){
+  if(!window.NovusDB || !NovusDB.startupActions || !window.ACTIVE_PLANT){ STARTUP_ACTIONS = []; return; }
+  try{
+    const { data, error } = await NovusDB.startupActions.getAll(ACTIVE_PLANT.id);
+    STARTUP_ACTIONS = (!error && data) ? data : [];
+  }catch(e){ STARTUP_ACTIONS = []; console.warn('startup actions load failed (non-fatal):', e); }
+}
+function suPillHtml(p, line, ok, tag){
+  const base = `<span class="pill-label">${cwEsc(p.label)}</span>`, mark = ok?'✓':'✗', cls = `status-pill ${ok?'pill-yes':'pill-no'}`;
+  if(!suIsPill(p)) return `<${tag} class="${cls}">${base}<span>${mark}</span></${tag}>`;
+  const n = suOpenFor(line).length;
+  const warn = n ? `<span class="su-warn" title="${n} open startup action${n>1?'s':''}" aria-label="${n} open startup action${n>1?'s':''}">⚠</span>` : '';
+  return `<${tag} class="${cls} su-pill" data-startup="${cwEsc(line)}" tabindex="0" role="button" title="Startup action list for ${cwEsc(prodLineLabel(line))}">${base}<span class="su-tail">${warn}<span>${mark}</span></span></${tag}>`;
+}
+function suClose(){ const p=document.getElementById('su-pop'); if(p) p.remove(); SU_LINE=null; SU_ANCHOR=null; }
+function suPlace(){
+  const pop = document.getElementById('su-pop'); if(!pop) return;
+  const a = (SU_ANCHOR && document.body.contains(SU_ANCHOR)) ? SU_ANCHOR.getBoundingClientRect() : null;
+  const w = pop.offsetWidth, h = pop.offsetHeight, vw = innerWidth, vh = innerHeight;
+  let x = a ? a.left : (vw-w)/2, y = a ? a.bottom + 6 : 80;
+  if(x + w > vw - 8) x = vw - w - 8; if(x < 8) x = 8;
+  if(y + h > vh - 8) y = a ? Math.max(8, a.top - h - 6) : Math.max(8, vh - h - 8);
+  pop.style.left = x+'px'; pop.style.top = y+'px';
+}
+function suRender(){
+  const line = SU_LINE; if(line==null) return;
+  let pop = document.getElementById('su-pop');
+  if(!pop){ pop = document.createElement('div'); pop.id = 'su-pop'; pop.setAttribute('role','dialog'); document.body.appendChild(pop); }
+  const admin = !!(window.NovusCore && NovusCore.isAdmin());
+  const mine = STARTUP_ACTIONS.filter(a=>suSame(a.line,line));
+  const open = mine.filter(a=>!a.done), done = mine.filter(a=>a.done).slice(-5);
+  const item = a=>`<div class="su-item${a.done?' done':''}" data-suid="${cwEsc(a.id)}">
+      <input type="checkbox" ${a.done?'checked':''} ${admin?'':'disabled'} aria-label="${a.done?'Mark not done':'Mark done'}" data-suact="toggle">
+      <span class="su-text">${cwEsc(a.text)}</span>${admin?'<button type="button" class="su-rm" data-suact="remove" title="Remove" aria-label="Remove action">✕</button>':''}</div>`;
+  pop.setAttribute('aria-label', 'Startup actions for '+prodLineLabel(line));
+  pop.innerHTML = `<div class="su-head"><span>STARTUP · ${cwEsc(prodLineLabel(line))}</span><button type="button" class="su-x" aria-label="Close" data-suact="close">✕</button></div>
+    <div class="su-body">${open.length ? open.map(item).join('') : '<div class="su-none">No open actions.</div>'}
+      ${done.length ? '<div class="su-sub">Done</div>'+done.map(item).join('') : ''}</div>
+    ${admin ? '<div class="su-add"><input type="text" id="su-new" maxlength="200" placeholder="Add an action…" aria-label="New startup action"><button type="button" data-suact="add">Add</button></div>'
+            : '<div class="su-note">Only admins can add or complete actions.</div>'}`;
+  suPlace();
+}
+function suOpen(line, anchor){ suClose(); SU_LINE = line; SU_ANCHOR = anchor || null; suRender(); const i=document.getElementById('su-new'); if(i) i.focus(); }
+async function suReload(){ await loadStartupActions(); if(typeof prodRender==='function' && workbook) prodRender(); if(SU_LINE!=null) suRender(); }
+async function suAct(act, el){
+  if(!window.NovusDB || !NovusDB.startupActions) return;
+  const who = (NovusCore.getUser()||{}).username || '';
+  let res = null;
+  if(act==='add'){
+    const inp = document.getElementById('su-new'), text = inp ? inp.value.trim() : '';
+    if(!text) return;
+    res = await NovusDB.startupActions.add({ plant_id: ACTIVE_PLANT.id, line: SU_LINE, text, created_by: who });
+  } else {
+    const row = el.closest('[data-suid]'); if(!row) return;
+    if(act==='toggle') res = await NovusDB.startupActions.setDone(row.dataset.suid, el.checked, who);
+    if(act==='remove') res = await NovusDB.startupActions.remove(row.dataset.suid);
+  }
+  if(res && res.error) NovusCore.Toast.error('Could not save: ' + res.error.message);
+  await suReload();
+  if(act==='add'){ const i=document.getElementById('su-new'); if(i) i.focus(); }
+}
+document.addEventListener('click', e=>{
+  const act = e.target.closest && e.target.closest('[data-suact]');
+  if(act){ const a = act.dataset.suact; if(a==='close') suClose(); else if(a!=='toggle') suAct(a, act); return; }
+  if(window.EDIT && EDIT.on) return;
+  const pill = e.target.closest && e.target.closest('[data-startup]');
+  if(pill){ e.stopPropagation(); (SU_LINE!=null && suSame(SU_LINE, pill.dataset.startup)) ? suClose() : suOpen(pill.dataset.startup, pill); return; }
+  if(SU_LINE!=null && !e.target.closest('#su-pop')) suClose();
+}, true);
+document.addEventListener('change', e=>{ const t=e.target; if(t.matches && t.matches('#su-pop [data-suact="toggle"]')) suAct('toggle', t); });
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && SU_LINE!=null){ suClose(); return; }
+  if(e.key==='Enter' && e.target.id==='su-new'){ e.preventDefault(); suAct('add', e.target); return; }
+  if(e.key==='Enter' && !(window.EDIT && EDIT.on) && e.target.matches && e.target.matches('[data-startup]')){ e.preventDefault(); suOpen(e.target.dataset.startup, e.target); }
+});
+addEventListener('resize', suPlace);
+(function(){
+  let t=null; const refresh=()=>{ clearTimeout(t); t=setTimeout(suReload,400); };
+  if(window.NovusDB && NovusDB.startupActions && NovusDB.startupActions.subscribe) NovusDB.startupActions.subscribe(refresh);
+})();
 function prodRender(){
   const cfg = PROD_CFG = prodResolve();
   prodBuild(cfg);
@@ -996,7 +1155,7 @@ function prodRender(){
       card.innerHTML = `<div class="readiness-line"${cfg.lineDetail.show?` data-pline="${cwEsc(line)}" tabindex="0" role="button" title="See this line's detail" style="cursor:pointer"`:''}>${cwEsc(prodLineLabel(line))}</div>` + cfg.left.pills.map(p=>{
         const vals = rows.map(r=>valByKey(r,p.field)).filter(v=>v!=null);
         const ok = vals.length>0 && !vals.some(v=>yn(v)==='No') && vals.some(v=>yn(v)==='Yes');
-        return `<div class="status-pill ${ok?'pill-yes':'pill-no'}"><span class="pill-label">${cwEsc(p.label)}</span><span>${ok?'✓':'✗'}</span></div>`;
+        return suPillHtml(p, line, ok, 'div');
       }).join('');
       grid.appendChild(card);
     });
@@ -1070,6 +1229,7 @@ function renderDashboard(){
   set('cost-direct',getVal(fin,'$/Pound - Direct',dFin));set('cost-indirect',getVal(fin,'$/Pound - Indirect',dFin));set('pound-hr-direct',getVal(fin,'Pounds/hour - Direct',dFin));set('pound-hr-indirect',getVal(fin,'Pounds/hour - Indirect',dFin));set('conversion-costs',getVal(fin,'Conversion Cost',dFin));set('pounds-prod',getVal(fin,'Pounds Produced',dFin));
   // Production Summary is drawn from its config (Code Red/Yellow, OEE, line table, pounds, drivers).
   prodRender();
+  nmRender();
   if(window.EDIT) EDIT.decorate();
   // SAP
   set('proc-orders',getVal(sap,'Open Process Orders',dSAP));set('warehouse-tasks',getVal(sap,'Warehouse Tasks',dSAP));
@@ -1408,6 +1568,7 @@ async function fetchFromSharePoint(){
     await loadProdConfig();
     applyLayout();
     await loadDataEntrySheet();
+    await loadStartupActions();
     await loadCustomWidgets();
     await loadHiddenItems();
     await loadMetricSources();
@@ -1719,7 +1880,7 @@ async function loadDataEntrySheet(){
           const label = labelByKey[dept+'|'+k];
           const v = e.data[k];
           if(label===undefined || v===''||v==null) return;
-          if(prodIsL2L(dept,label)) return;   // L2L owns OEE / Downtime / Code Red / Code Yellow; Data Entry never overwrites them
+          if(prodIsFileL2L(dept,label)) return;   // the L2L file owns OEE / Downtime / Code Red / Code Yellow; Data Entry never overwrites them
           vals[label] = v;
         });
         const labels = Object.keys(vals);

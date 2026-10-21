@@ -365,6 +365,7 @@ body {
     <div class="hub-avatar" id="hub-avatar">—</div>
     <span id="hub-username">—</span>
     <select id="plant-switch" class="plant-switch" aria-label="Switch plant" style="display:none;font:inherit;font-size:.78rem;font-weight:700;padding:5px 8px;border-radius:8px;max-width:210px;cursor:pointer"></select>
+    <a class="hub-logout" id="hub-conn" href="integrations.html" style="display:none;text-decoration:none;" title="Connect Leading2Lean">🔌 Connection</a>
     <a class="hub-logout" id="hub-team" href="team.html" style="display:none;text-decoration:none;" title="Approve people and set roles">👥 Team</a>
     <a class="hub-logout" id="hub-plants" href="plants.html" style="display:none;text-decoration:none;" title="Add or delete plants and assign people">🏭 Plants</a>
     <button class="hub-logout" onclick="NovusCore.showMaintenance()" style="border-color:rgba(217,119,6,.3);color:var(--amber);" title="Maintenance Center">🔧 Maintenance</button>
@@ -464,7 +465,7 @@ NovusCore.requireAuth();
   const b = (window.PLANT_CONFIG && PLANT_CONFIG.branding) || {};
   if (b.showProductStrip) { document.getElementById('hub-product-strip').style.display = ''; document.getElementById('hub-product-tag').textContent = b.heroTag || ''; }
   if (b.showBrandsBar) document.getElementById('hub-brands-bar').style.display = '';
-  if (NovusCore.isAdmin()) document.getElementById('hub-team').style.display = '';
+  if (NovusCore.isAdmin()) { document.getElementById('hub-team').style.display = ''; document.getElementById('hub-conn').style.display = ''; }
   if (NovusCore.isSuper()) document.getElementById('hub-plants').style.display = '';
   const mine = (NovusCore.getUser() || {}).plants || [], sw = document.getElementById('plant-switch');
   if (mine.length > 1) {

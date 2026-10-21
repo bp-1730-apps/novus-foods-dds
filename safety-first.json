@@ -1,0 +1,136 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Safety first",
+  "description": "Safety at the top, full width, with near-miss and incident trends.",
+  "panels": [
+    {
+      "id": "strend",
+      "title": "Safety trends",
+      "icon": "🦺",
+      "span": 12
+    }
+  ],
+  "order": [
+    "cpanel-strend",
+    "panel-safety",
+    "panel-hr",
+    "panel-highlights",
+    "panel-quality",
+    "panel-production",
+    "panel-sanitation",
+    "panel-costs",
+    "panel-sap",
+    "panel-warehouse",
+    "panel-inventory"
+  ],
+  "spans": {
+    "panel-safety": 12,
+    "panel-quality": 8,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 4,
+    "panel-hr": 12,
+    "panel-sap": 4,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12,
+    "cpanel-strend": 12
+  },
+  "hidden": [
+    "panel:panel-costs",
+    "panel:panel-inventory",
+    "panel:panel-production",
+    "panel:panel-quality",
+    "panel:panel-sanitation",
+    "panel:panel-sap",
+    "panel:panel-warehouse"
+  ],
+  "cw": [
+    {
+      "id": "w8",
+      "panel_id": "cpanel-strend",
+      "widget_type": "metric",
+      "sheet": "HR | Training",
+      "field": "Days Without Incident",
+      "agg": "latest",
+      "range_days": 30,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Days without incident",
+      "body": null
+    },
+    {
+      "id": "w9",
+      "panel_id": "cpanel-strend",
+      "widget_type": "metric",
+      "sheet": "HR | Training",
+      "field": "Near Miss Reports",
+      "agg": "sum",
+      "range_days": 7,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Near misses (last 7 days)",
+      "body": null
+    },
+    {
+      "id": "w10",
+      "panel_id": "cpanel-strend",
+      "widget_type": "bar",
+      "sheet": "HR | Training",
+      "field": "Near Miss Reports",
+      "agg": null,
+      "range_days": 30,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Near misses per day",
+      "body": null
+    },
+    {
+      "id": "w11",
+      "panel_id": "cpanel-strend",
+      "widget_type": "line",
+      "sheet": "HR | Training",
+      "field": "Safety Audits",
+      "agg": null,
+      "range_days": 60,
+      "target": null,
+      "target_dir": "gte",
+      "full_width": false,
+      "label": "Safety audits",
+      "body": null
+    }
+  ],
+  "src": {},
+  "hl": [
+    {
+      "key": "Quality",
+      "label": "Quality",
+      "icon": "🥇"
+    },
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    },
+    {
+      "key": "Sanitation",
+      "label": "Sanitation",
+      "icon": "🧼"
+    },
+    {
+      "key": "Warehouse",
+      "label": "Warehouse",
+      "icon": "🏭"
+    },
+    {
+      "key": "Maintenance",
+      "label": "Maintenance",
+      "icon": "⭐"
+    }
+  ],
+  "prod": null
+}

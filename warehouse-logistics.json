@@ -1,0 +1,49 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Warehouse and logistics",
+  "description": "Warehouse, Inventory Control and SAP metrics together.",
+  "panels": [],
+  "order": [
+    "panel-warehouse",
+    "panel-inventory",
+    "panel-sap",
+    "panel-highlights",
+    "panel-safety",
+    "panel-quality",
+    "panel-production",
+    "panel-sanitation",
+    "panel-costs",
+    "panel-hr"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 8,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 4,
+    "panel-hr": 4,
+    "panel-sap": 12,
+    "panel-warehouse": 8,
+    "panel-inventory": 4,
+    "panel-highlights": 12
+  },
+  "hidden": [
+    "panel:panel-costs",
+    "panel:panel-hr",
+    "panel:panel-production",
+    "panel:panel-quality",
+    "panel:panel-safety",
+    "panel:panel-sanitation"
+  ],
+  "cw": [],
+  "src": {},
+  "hl": [
+    {
+      "key": "Warehouse",
+      "label": "Warehouse",
+      "icon": "🏭"
+    }
+  ],
+  "prod": null
+}

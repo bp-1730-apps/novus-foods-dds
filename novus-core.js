@@ -36,6 +36,7 @@ window.NovusCore = (() => {
         const a = document.createElement('a'); a.className = 'cmd-tab'; a.href = href; a.textContent = label; nav.appendChild(a);
       };
       if (isAdmin()) add('team.html', 'Team');
+      if (isAdmin()) add('integrations.html', 'Connection');
       if (isSuper()) add('plants.html', 'Plants');
       _plantSwitcher(nav);
     }

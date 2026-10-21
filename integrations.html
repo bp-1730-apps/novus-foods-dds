@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script src="plant-config.js"></script>
+  <script src="plant-context.js"></script>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Connection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="novus-styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script src="novus-core.js"></script>
+  <style>
+    .page { padding-top:24px; padding-bottom:60px; max-width:860px; }
+    .page-title { font-size:1.75rem; font-weight:800; color:var(--ink); letter-spacing:-.03em; }
+    .plant-tag { font-size:.72rem; font-weight:700; color:var(--green-d); background:var(--green-xll); border:1px solid var(--green-ll); padding:3px 10px; border-radius:20px; margin-left:12px; vertical-align:middle; }
+    .lead { color:var(--ink3); font-size:.88rem; margin:6px 0 20px; max-width:66ch; }
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:18px; overflow:hidden; box-shadow:var(--shadow-sm); }
+    .panel-header { background:linear-gradient(135deg,var(--green-xll),var(--green-ll)); border-bottom:1.5px solid #a7f3d0; padding:11px 18px; font-weight:800; font-size:.88rem; color:var(--green-d); }
+    .panel-body { padding:14px 18px 16px; }
+    .f { display:grid; grid-template-columns:200px 1fr; gap:6px 14px; align-items:center; margin-bottom:12px; }
+    .f label { font-weight:700; font-size:.82rem; color:var(--ink2); }
+    .f small { grid-column:2; color:var(--ink3); font-size:.74rem; margin-top:-4px; }
+    @media (max-width:640px){ .f { grid-template-columns:1fr; } .f small { grid-column:1; } }
+    input[type=text], input[type=password], input[type=number], select { font:inherit; padding:7px 9px; border:1px solid var(--border); border-radius:6px; background:var(--surface); width:100%; max-width:340px; box-sizing:border-box; }
+    table.map { border-collapse:collapse; width:100%; max-width:560px; } table.map td, table.map th { padding:5px 8px; border-bottom:1px solid var(--border); text-align:left; font-size:.82rem; }
+    .btns { display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
+    .msg { font-size:.82rem; font-weight:700; padding-top:10px; min-height:1.2em; overflow-wrap:anywhere; } .msg.ok { color:var(--green); } .msg.err { color:var(--red-l); }
+    .status { font-size:.84rem; color:var(--ink2); line-height:1.6; } .status b.ok { color:var(--green); } .status b.err { color:var(--red-l); }
+    .btn-danger { background:rgba(220,38,38,.08); color:var(--red-l); border:1px solid rgba(220,38,38,.25); border-radius:6px; padding:7px 14px; font-weight:700; cursor:pointer; }
+    .steps { font-size:.82rem; color:var(--ink3); line-height:1.7; padding-left:18px; margin:0; }
+  </style>
+</head>
+<body id="main-body">
+<header class="cmd-header">
+  <div class="cmd-left">
+    <a href="hub.html"><img data-brand-logo alt="" class="cmd-logo"></a>
+    <div class="cmd-divider"></div>
+    <nav class="cmd-nav">
+      <a class="cmd-tab" href="hub.html">Home</a>
+      <a class="cmd-tab" href="dds-dashboard.html">Dashboard</a>
+      <a class="cmd-tab" href="data-entry.html">Data Entry</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page">
+  <h1 class="page-title">Connection<span class="plant-tag" id="plant-tag"></span></h1>
+  <p class="lead">Connect <b id="lead-plant">this plant</b> to the system that tracks its production, so OEE, downtime, Code Red and Code Yellow fill in on your dashboard by themselves. You type your own API key here; it is stored for this plant only, and nobody (including you, after saving) can read it back.</p>
+
+  <div class="panel">
+    <div class="panel-header">Status</div>
+    <div class="panel-body status" id="status">Loading…</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">1 · Which system does this plant use?</div>
+    <div class="panel-body">
+      <div class="f"><label for="c-provider">System</label>
+        <select id="c-provider"><option value="l2l">Leading2Lean (L2L)</option><option value="redzone" disabled>Redzone (coming soon)</option></select></div>
+      <div class="f"><label for="c-company">L2L company name</label><input type="text" id="c-company" autocomplete="off" placeholder="mycompany">
+        <small>The first part of your L2L address: <b>mycompany</b>.leading2lean.com</small></div>
+      <div class="f"><label for="c-site">Site number</label><input type="number" id="c-site" min="0" step="1" placeholder="e.g. 3">
+        <small>Your plant's site number in L2L.</small></div>
+      <div class="f"><label for="c-red">Code Red type id</label><input type="number" id="c-red" min="0" step="1" placeholder="optional">
+        <small>The L2L dispatch type that counts as a Code Red. Leave blank to skip.</small></div>
+      <div class="f"><label for="c-yellow">Code Yellow type id</label><input type="number" id="c-yellow" min="0" step="1" placeholder="optional">
+        <small>The L2L dispatch type that counts as a Code Yellow. Leave blank to skip.</small></div>
+      <div class="f"><label for="c-tz">Time zone</label><input type="text" id="c-tz" autocomplete="off" placeholder="America/Chicago">
+        <small>Decides which calendar day a record belongs to.</small></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">2 · Match your lines to L2L</div>
+    <div class="panel-body">
+      <p class="lead" style="margin-top:0">Type each line's L2L line code. Lines left blank are not pulled.</p>
+      <table class="map"><thead><tr><th>Line on your dashboard</th><th>L2L line code</th></tr></thead><tbody id="lines"></tbody></table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">3 · Your API key</div>
+    <div class="panel-body">
+      <div class="f"><label for="c-key">API key</label><input type="password" id="c-key" autocomplete="new-password" placeholder="">
+        <small id="key-note"></small></div>
+      <div class="f"><label for="c-on">Fill my dashboard</label><span><label style="font-weight:600"><input type="checkbox" id="c-on"> Turn the connection on</label></span>
+        <small>When on, those four numbers come from L2L and are read-only in Data Entry. Needs a saved key.</small></div>
+      <div class="btns">
+        <button type="button" class="btn btn-primary" id="b-save">Save</button>
+        <button type="button" class="btn" id="b-test">Test connection</button>
+        <button type="button" class="btn" id="b-sync">Pull the last 7 days now</button>
+        <button type="button" class="btn-danger" id="b-clear">Remove key and disconnect</button>
+      </div>
+      <div class="msg" id="msg" role="status"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const say = (t, cls) => { const e = $('msg'); e.textContent = t || ''; e.className = 'msg' + (cls ? ' ' + cls : ''); };
+  const PID = () => window.PLANT_CONFIG.plant.id;
+  let ROW = null, LINES = [];
+
+  function fmt(ts) { try { return new Date(ts).toLocaleString(); } catch (_) { return ts; } }
+  function showStatus() {
+    const r = ROW;
+    if (!r) { $('status').innerHTML = 'Not connected yet. Fill in the steps below.'; return; }
+    $('status').innerHTML = (r.enabled ? '<b class="ok">On</b>' : '<b>Off</b>') + (r.key_hint ? ' · key saved (ends in <b>' + esc(r.key_hint) + '</b>)' : ' · no key saved') +
+      '<br>' + (r.last_run_at ? 'Last pull: ' + esc(fmt(r.last_run_at)) : 'No numbers pulled yet') +
+      (r.last_message ? '<br><b class="' + (r.last_status === 'error' ? 'err' : 'ok') + '">' + esc(r.last_message) + '</b>' : '');
+  }
+  function fill() {
+    const s = (ROW && ROW.settings) || {};
+    $('c-company').value = s.company || ''; $('c-site').value = s.siteNumber != null ? s.siteNumber : '';
+    $('c-red').value = s.codeRedId != null ? s.codeRedId : ''; $('c-yellow').value = s.codeYellowId != null ? s.codeYellowId : '';
+    let tz = s.timezone; if (!tz) { try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (_) { tz = ''; } }
+    $('c-tz').value = tz || '';
+    $('c-on').checked = !!(ROW && ROW.enabled);
+    $('c-key').value = '';
+    $('key-note').textContent = ROW && ROW.key_hint ? 'A key is saved (ends in ' + ROW.key_hint + '). Leave this blank to keep it, or type a new one to replace it.' : 'Paste the API key from your L2L account. It is only ever sent to this plant\'s private store.';
+    $('lines').innerHTML = LINES.map((l, i) => '<tr><td>' + esc(l.label || l.code) + '</td><td><input type="text" data-li="' + i + '" value="' + esc(l.l2lCode || '') + '" placeholder="e.g. BP-LINE1"></td></tr>').join('') || '<tr><td colspan="2">This plant has no lines yet.</td></tr>';
+    showStatus();
+  }
+  async function load() {
+    const [r, p] = await Promise.all([
+      _sb.from('plant_integrations').select('*').eq('plant_id', PID()).maybeSingle(),
+      _sb.from('plants').select('config').eq('id', PID()).maybeSingle()
+    ]);
+    if (r.error) { $('status').textContent = 'Could not load the connection: ' + r.error.message + ' (has integrations.sql been run?)'; return; }
+    ROW = r.data || null;
+    const cfg = (p.data && p.data.config) || {};
+    LINES = ((cfg.lines || window.PLANT_CONFIG.lines || []).map(l => typeof l === 'string' ? { code: l, label: l, l2lCode: '' } : { code: l.code, label: l.label || l.code, l2lCode: l.l2lCode || '' }));
+    window._cfg = cfg;
+    fill();
+  }
+  const num = v => { v = String(v).trim(); return v === '' ? null : Number(v); };
+  async function save() {
+    const company = $('c-company').value.trim(), site = num($('c-site').value);
+    if ($('c-on').checked) {
+      if (!company || site == null || isNaN(site)) { say('Fill in the company name and site number before turning it on.', 'err'); return false; }
+      if (!$('c-key').value.trim() && !(ROW && ROW.key_hint)) { say('Type your API key before turning it on.', 'err'); return false; }
+    }
+    const settings = { company, siteNumber: site, codeRedId: num($('c-red').value), codeYellowId: num($('c-yellow').value), timezone: $('c-tz').value.trim() };
+    LINES.forEach((l, i) => { l.l2lCode = (document.querySelector('[data-li="' + i + '"]') || {}).value || ''; l.l2lCode = l.l2lCode.trim(); });
+    const key = $('c-key').value.trim();
+    const { error } = await _sb.rpc('save_integration', { p_plant: PID(), p_provider: $('c-provider').value, p_enabled: $('c-on').checked, p_settings: settings, p_key: key || null });
+    if (error) { say(error.message, 'err'); return false; }
+    const cfg = Object.assign({}, window._cfg || {}, { lines: LINES.map(l => ({ code: l.code, label: l.label, l2lCode: l.l2lCode })) });
+    const u = await _sb.from('plants').update({ config: cfg }).eq('id', PID());
+    if (u.error) { say('Saved the connection, but could not save the line matching: ' + u.error.message, 'err'); return false; }
+    await load(); try { await NovusAccess.refresh(); } catch (_) {}
+    return true;
+  }
+  async function callFn(action) {
+    if (!(await save())) return;
+    say(action === 'test' ? 'Checking with L2L…' : 'Pulling numbers…');
+    let res;
+    try { res = await _sb.functions.invoke('integrations-run', { body: { action, plant_id: PID(), days: 7 } }); }
+    catch (e) { res = { error: e }; }
+    if (res.error && !res.data) { say('Saved, but the pull service could not be reached. Ask whoever set up Supabase to deploy the "integrations-run" function (see PLANT_SETUP.md).', 'err'); return; }
+    const d = res.data || {};
+    say(d.message || (d.ok ? 'Done.' : 'That did not work.'), d.ok ? 'ok' : 'err'); load();
+  }
+  $('b-save').addEventListener('click', async () => { if (await save()) say('Saved ✓', 'ok'); });
+  $('b-test').addEventListener('click', () => callFn('test'));
+  $('b-sync').addEventListener('click', () => callFn('sync'));
+  $('b-clear').addEventListener('click', async () => {
+    if (!confirm('Remove the saved key and turn the connection off? Numbers already pulled stay on the dashboard.')) return;
+    const { error } = await _sb.rpc('clear_integration_key', { p_plant: PID() });
+    if (error) { say(error.message, 'err'); return; }
+    say('Key removed and connection turned off ✓', 'ok'); await load(); try { await NovusAccess.refresh(); } catch (_) {}
+  });
+
+  window.onload = () => {
+    NovusCore.requireAuth();
+    if (!NovusCore.isAdmin()) { document.querySelector('.page').innerHTML = '<h1 class="page-title">Connection</h1><p class="lead">Only plant admins can manage the connection.</p>'; return; }
+    $('plant-tag').textContent = PLANT_CONFIG.plant.shortLabel;
+    $('lead-plant').textContent = PLANT_CONFIG.plant.name || PLANT_CONFIG.plant.shortLabel;
+    document.title = 'Connection – ' + PLANT_CONFIG.plant.name;
+    load();
+  };
+</script>
+</body>
+</html>

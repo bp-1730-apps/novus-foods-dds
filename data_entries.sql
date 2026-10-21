@@ -73,7 +73,8 @@ end $$;
 drop trigger if exists plants_lock_id on public.plants;
 create trigger plants_lock_id before update on public.plants for each row execute function public.plants_lock_id();
 
--- Helper checks used by every policy below. SECURITY DEFINER so they can read
+-- Helper checks used by every policy below. They always return true or false (never NULL), so
+-- "if not dds_is_admin(...)" in the functions below is safe for people with no access at all. SECURITY DEFINER so they can read
 -- plant_members without the policies on it recursing. A super-admin counts as
 -- an admin of every plant.
 create or replace function public.dds_is_super() returns boolean
@@ -88,10 +89,10 @@ create or replace function public.dds_is_member(p text) returns boolean
   $$ select public.dds_role(p) is not null $$;
 create or replace function public.dds_is_editor(p text) returns boolean
   language sql stable security definer set search_path = public as
-  $$ select public.dds_role(p) in ('admin','editor') $$;
+  $$ select coalesce(public.dds_role(p) in ('admin','editor'), false) $$;
 create or replace function public.dds_is_admin(p text) returns boolean
   language sql stable security definer set search_path = public as
-  $$ select public.dds_role(p) = 'admin' $$;
+  $$ select coalesce(public.dds_role(p) = 'admin', false) $$;
 
 -- "Anywhere" versions, for the few old tables that have no plant_id column.
 create or replace function public.dds_role() returns text
@@ -104,10 +105,10 @@ create or replace function public.dds_is_member() returns boolean
   $$ select public.dds_role() is not null $$;
 create or replace function public.dds_is_editor() returns boolean
   language sql stable security definer set search_path = public as
-  $$ select public.dds_role() in ('admin','editor') $$;
+  $$ select coalesce(public.dds_role() in ('admin','editor'), false) $$;
 create or replace function public.dds_is_admin() returns boolean
   language sql stable security definer set search_path = public as
-  $$ select public.dds_role() = 'admin' $$;
+  $$ select coalesce(public.dds_role() = 'admin', false) $$;
 
 -- A plant admin (or super-admin) approves someone who has already created an
 -- account, for ONE plant. The same person can be added to several plants.

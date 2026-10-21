@@ -1,0 +1,62 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Everything, three across",
+  "description": "Every built-in section in the same size, three across.",
+  "panels": [],
+  "order": [
+    "panel-safety",
+    "panel-quality",
+    "panel-production",
+    "panel-sanitation",
+    "panel-costs",
+    "panel-hr",
+    "panel-sap",
+    "panel-warehouse",
+    "panel-inventory",
+    "panel-highlights"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 4,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 4,
+    "panel-hr": 4,
+    "panel-sap": 4,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12
+  },
+  "hidden": [],
+  "cw": [],
+  "src": {},
+  "hl": [
+    {
+      "key": "Quality",
+      "label": "Quality",
+      "icon": "🥇"
+    },
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    },
+    {
+      "key": "Sanitation",
+      "label": "Sanitation",
+      "icon": "🧼"
+    },
+    {
+      "key": "Warehouse",
+      "label": "Warehouse",
+      "icon": "🏭"
+    },
+    {
+      "key": "Maintenance",
+      "label": "Maintenance",
+      "icon": "⭐"
+    }
+  ],
+  "prod": null
+}

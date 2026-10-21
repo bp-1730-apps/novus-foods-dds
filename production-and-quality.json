@@ -1,0 +1,59 @@
+{
+  "format": "dds-layout",
+  "version": 1,
+  "name": "Production and quality",
+  "description": "Production with Quality and Sanitation under it.",
+  "panels": [],
+  "order": [
+    "panel-production",
+    "panel-quality",
+    "panel-sanitation",
+    "panel-highlights",
+    "panel-safety",
+    "panel-costs",
+    "panel-hr",
+    "panel-sap",
+    "panel-warehouse",
+    "panel-inventory"
+  ],
+  "spans": {
+    "panel-safety": 4,
+    "panel-quality": 8,
+    "panel-production": 12,
+    "panel-sanitation": 4,
+    "panel-costs": 4,
+    "panel-hr": 4,
+    "panel-sap": 4,
+    "panel-warehouse": 4,
+    "panel-inventory": 4,
+    "panel-highlights": 12
+  },
+  "hidden": [
+    "panel:panel-costs",
+    "panel:panel-hr",
+    "panel:panel-inventory",
+    "panel:panel-safety",
+    "panel:panel-sap",
+    "panel:panel-warehouse"
+  ],
+  "cw": [],
+  "src": {},
+  "hl": [
+    {
+      "key": "Production",
+      "label": "Production",
+      "icon": "⚙️"
+    },
+    {
+      "key": "Quality",
+      "label": "Quality",
+      "icon": "🥇"
+    },
+    {
+      "key": "Sanitation",
+      "label": "Sanitation",
+      "icon": "🧼"
+    }
+  ],
+  "prod": null
+}
