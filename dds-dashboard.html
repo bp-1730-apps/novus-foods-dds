@@ -367,6 +367,12 @@
       Sync Data
     </button>
 
+    <!-- Pull from L2L: admins of a plant with a live Connection only (shown by initL2LButton) -->
+    <button class="btn-cmd" id="btn-l2l" style="display:none;" onclick="pullL2L()" title="Pull the latest numbers from Leading2Lean">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/></svg>
+      <span id="btn-l2l-text">Pull L2L</span>
+    </button>
+
     <!-- ··· More menu (all secondary actions) -->
     <div class="cmd-more-wrap" id="more-wrap">
       <button class="btn-cmd-icon" id="btn-more" onclick="toggleMore(event)" title="More options">
@@ -1398,7 +1404,35 @@ function updatePlantStatusBar(){
 }
 
 // ══ ROLE-BASED INTERACTION ════════════════════════════════════════════════
+
+// ── Pull L2L: an admin presses this to bring in the latest L2L numbers (only when the plant has a live Connection) ──
+function initL2LButton(){
+  const b=document.getElementById('btn-l2l'); if(!b) return;
+  const c=window.PLANT_CONFIG && PLANT_CONFIG.connection;
+  b.style.display = (NovusCore.isAdmin() && c && c.enabled && c.provider==='l2l') ? '' : 'none';
+}
+async function pullL2L(){
+  const b=document.getElementById('btn-l2l'), t=document.getElementById('btn-l2l-text');
+  if(!b || b.disabled) return;
+  const set=(txt,tip)=>{ t.textContent=txt; if(tip!==undefined) b.title=tip; };
+  b.disabled=true; set('Pulling…');
+  try{
+    const res=await _sb.functions.invoke('integrations-run',{ body:{ action:'sync', plant_id:PLANT_CONFIG.plant.id, days:7 } });
+    const d=res.data||{};
+    if(res.error && !res.data) throw new Error('The pull service could not be reached. Check the Connection page.');
+    if(!d.ok) throw new Error(d.message||'The pull did not work.');
+    await loadDataEntrySheet();
+    if(typeof renderDashboard==='function' && workbook) renderDashboard(); else renderCustomWidgets();
+    set('Updated '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+' ✓', d.message);
+  }catch(e){
+    set('Pull failed', e.message);
+    alert('L2L pull: '+e.message);
+  }
+  b.disabled=false;
+  setTimeout(()=>{ if(!b.disabled) set('Pull L2L','Pull the latest numbers from Leading2Lean'); }, 8000);
+}
 function applyRoleAccess(){
+  initL2LButton();
   const isAdmin=NovusCore.isAdmin();
   document.querySelectorAll('[contenteditable]').forEach(el=>{
     if(isAdmin){
