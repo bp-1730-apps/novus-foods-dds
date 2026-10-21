@@ -45,7 +45,7 @@
   window.PLANTS_CONFIG_PROMISE = Promise.resolve({ plants: [{
     id: p.id, name: p.name, shortLabel: p.shortLabel, location: p.location,
     dataUrl: on('powerAutomate') ? src.powerAutomate.dataUrl : '',
-    l2lDataUrl: on('l2l') ? src.l2l.dataUrl : '',
+    l2lDataUrl: on('l2l') && !(C.connection && C.connection.enabled) ? src.l2l.dataUrl : '',
     lines: (C.lines || []).map(function (l) { return l.code; })
   }] });
 })();

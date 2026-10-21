@@ -729,8 +729,9 @@ const PROD_AGGS    = { last:'Latest entry', sum:'Total', avg:'Average' };
 const PROD_L2L     = { 'Production':['OEE','Downtime'], 'Maintenance':['Code Red','Code Yellow'] };
 function prodIsFileL2L(sheetName, field){   // fed by the GitHub-synced l2l-data.json file
   const l = window.PLANT_CONFIG && PLANT_CONFIG.sources && PLANT_CONFIG.sources.l2l;
-  return !!(l && l.enabled && (PROD_L2L[sheetName]||[]).includes(field));
+  return !!(l && l.enabled && !prodConnOn() && (PROD_L2L[sheetName]||[]).includes(field));
 }
+function prodConnOn(){ const c = window.PLANT_CONFIG && PLANT_CONFIG.connection; return !!(c && c.enabled && c.provider === 'l2l'); }
 function prodIsL2L(sheetName, field){       // owned by L2L either way: the file, or this plant's Connection
   const c = window.PLANT_CONFIG && PLANT_CONFIG.connection;
   return prodIsFileL2L(sheetName, field) || !!(c && c.enabled && c.provider === 'l2l' && (PROD_L2L[sheetName]||[]).includes(field));
@@ -1531,7 +1532,7 @@ async function fetchFromSharePoint(){
     // letting Power Automate's OEE/Downtime show, ever.)
     // (Only when L2L is switched on in plant-config.js. A plant without L2L
     // keeps these four fields from Power Automate / Data Entry.)
-    if(window.PLANT_CONFIG.sources.l2l.enabled){
+    if(window.PLANT_CONFIG.sources.l2l.enabled || prodConnOn()){
       (_dashData['Production'] || []).forEach(row => {
         delete row.OEE; delete row.Downtime;
       });

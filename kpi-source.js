@@ -62,7 +62,7 @@
   }
   async function loadFeeds() {
     const S = src(), sheets = {}, info = {}, notes = [], used = [];
-    const l2lOn = !!(S.l2l && S.l2l.enabled);
+    const l2lOn = !!(S.l2l && S.l2l.enabled) && !(window.PLANT_CONFIG && PLANT_CONFIG.connection && PLANT_CONFIG.connection.enabled);
     const upsert = (rows, match, vals) => { const m = rows.find(r => Object.keys(match).every(k => String(r[k] == null ? '' : r[k]).trim() === String(match[k]).trim())); if (m) Object.assign(m, vals); else rows.push(Object.assign({}, match, vals)); };
 
     if (S.powerAutomate && S.powerAutomate.enabled && S.powerAutomate.dataUrl) {

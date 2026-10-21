@@ -83,7 +83,7 @@ export async function pullDay(fetchFn: FetchFn, s: L2LSettings, key: string, lin
     const code = byL2L[String(r.line ?? '').trim()];
     if (!code) { if (r.line != null) unmapped.push(String(r.line)); continue; }
     const dt = toNum(r.downtime_minutes), np = toNum(r.nonproduction_minutes) ?? 0;
-    production.push({ line: code, oee: normalizeOee(r.overall_equipment_effectiveness), downtime: dt == null ? null : Math.round((dt - np) * 100) / 100 });
+    production.push({ line: code, oee: normalizeOee(r.overall_equipment_effectiveness), downtime: dt == null ? null : Math.max(0, Math.round((dt - np) * 100) / 100) });
   }
 
   let maintenance: DayResult['maintenance'] = null;
